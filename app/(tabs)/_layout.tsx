@@ -62,7 +62,7 @@ const _layout = () => {
         <Tabs.Screen 
             name='index'
             options={{
-                title : 'Home',
+                title : 'Dashboard',
                 headerShown : false,
                 tabBarIcon : ({focused}) =>(
                     <TabIcon focused={focused} 
