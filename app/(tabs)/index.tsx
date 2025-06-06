@@ -17,14 +17,23 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// ✅ Import depuis Appwrite config centralisée
 import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
+import { ID } from 'appwrite'; 
 
 export default function InventoryDashboard() {
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
-  const [form, setForm] = useState({ name: '', description: '', stock: '', type: '', image: null });
+
+  // ✅ Form avec les bons attributs
+  const [form, setForm] = useState({
+    name: '',
+    description: '',
+    category: '',
+    price: '',
+    quantity: '',
+    image: null,
+  });
 
   const fetchProducts = async () => {
     try {
@@ -87,20 +96,21 @@ export default function InventoryDashboard() {
         ? {
             name: product.name,
             description: product.description,
-            stock: String(product.stock),
-            type: product.type || '',
+            category: product.category,
+            price: String(product.price),
+            quantity: String(product.quantity),
             image: null,
           }
-        : { name: '', description: '', stock: '', type: '', image: null }
+        : {
+            name: '',
+            description: '',
+            category: '',
+            price: '',
+            quantity: '',
+            image: null,
+          }
     );
     setModalVisible(true);
-  };
-
-  const getStockStatus = (stock) => {
-    const s = parseInt(stock);
-    if (s <= 5) return 'Low Stock';
-    if (s <= 20) return 'Medium Stock';
-    return 'In Stock';
   };
 
   const uploadImage = async (image) => {
@@ -125,30 +135,17 @@ export default function InventoryDashboard() {
 
   const handleSave = async () => {
     try {
-      const newStock = parseInt(form.stock);
-      const status = getStockStatus(newStock);
-      let payload;
+      const payload = {
+        name: form.name,
+        description: form.description,
+        category: form.category,
+        price: parseFloat(form.price),
+        quantity: parseInt(form.quantity),
+      };
 
-      if (editingProduct) {
-        payload = {
-          stock: newStock,
-          status,
-        };
-      } else {
-        let imageId = null;
-        if (form.image) {
-          const uploadedId = await uploadImage(form.image);
-          imageId = uploadedId;
-        }
-
-        payload = {
-          name: form.name,
-          description: form.description,
-          stock: newStock,
-          type: form.type,
-          status,
-          ...(imageId && { imageId }),
-        };
+      if (form.image) {
+        const uploadedId = await uploadImage(form.image);
+        payload.image = uploadedId;
       }
 
       if (editingProduct) {
@@ -178,12 +175,12 @@ export default function InventoryDashboard() {
         {products.map((item) => (
           <View
             key={item.$id}
-            className={`mb-4 p-4 rounded-lg shadow-sm ${item.status === 'Low Stock' ? 'bg-red-100' : 'bg-white'}`}
+            className="mb-4 p-4 rounded-lg shadow-sm bg-white"
           >
             <View className="flex-row items-center mb-2">
-              {item.imageId ? (
+              {item.image ? (
                 <Image
-                  source={{ uri: getImageUrl(item.imageId) }}
+                  source={{ uri: getImageUrl(item.image) }}
                   style={{ width: 48, height: 48, borderRadius: 8, marginRight: 12 }}
                 />
               ) : (
@@ -192,58 +189,41 @@ export default function InventoryDashboard() {
               <View className="flex-1">
                 <Text className="font-bold text-base">{item.name}</Text>
                 <Text className="text-gray-600 text-sm">{item.description}</Text>
-                <Text className="text-gray-500 text-sm italic">Type: {item.type}</Text>
+                <Text className="text-gray-500 text-sm">Catégorie : {item.category}</Text>
+                <Text className="text-gray-500 text-sm">Prix : {item.price} €</Text>
+                <Text className="text-gray-700 font-semibold">Quantité : {item.quantity}</Text>
               </View>
             </View>
 
-            <View className="flex-row justify-between items-center mt-2">
-              <Text className="text-gray-800 font-medium">{item.stock} unités</Text>
-              <View
-                className={`px-3 py-1 rounded-full ${item.status === 'Low Stock' ? 'bg-yellow-100 border border-yellow-500' : 'bg-blue-100'}`}
-              >
-                <Text className={`text-xs ${item.status === 'Low Stock' ? 'text-yellow-700' : 'text-blue-700'}`}>
-                  {item.status}
-                </Text>
-              </View>
-              <View className="flex-row space-x-2">
-                <TouchableOpacity onPress={() => openModal(item)}>
-                  <Ionicons name="pencil-outline" size={20} color="#555" />
-                </TouchableOpacity>
-                <TouchableOpacity onPress={() => confirmDelete(item.$id)}>
-                  <Ionicons name="trash-outline" size={20} color="red" />
-                </TouchableOpacity>
-              </View>
+            <View className="flex-row justify-end space-x-4">
+              <TouchableOpacity onPress={() => openModal(item)}>
+                <Ionicons name="pencil-outline" size={20} color="#555" />
+              </TouchableOpacity>
+              <TouchableOpacity onPress={() => confirmDelete(item.$id)}>
+                <Ionicons name="trash-outline" size={20} color="red" />
+              </TouchableOpacity>
             </View>
           </View>
         ))}
       </ScrollView>
 
-      {/* Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white p-6 rounded-xl w-11/12">
             <Text className="text-lg font-bold mb-4">
-              {editingProduct ? 'Modifier le stock' : 'Ajouter un produit'}
+              {editingProduct ? 'Modifier un produit' : 'Ajouter un produit'}
             </Text>
 
-            {!editingProduct &&
-              ['name', 'description', 'type'].map((field) => (
-                <TextInput
-                  key={field}
-                  placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                  value={form[field]}
-                  onChangeText={(text) => setForm({ ...form, [field]: text })}
-                  className="border p-2 mb-3 rounded"
-                />
-              ))}
-
-            <TextInput
-              placeholder="Stock"
-              value={form.stock}
-              onChangeText={(text) => setForm({ ...form, stock: text })}
-              keyboardType="numeric"
-              className="border p-2 mb-3 rounded"
-            />
+            {['name', 'description', 'category', 'price', 'quantity'].map((field) => (
+              <TextInput
+                key={field}
+                placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                value={form[field]}
+                onChangeText={(text) => setForm({ ...form, [field]: text })}
+                keyboardType={field === 'price' || field === 'quantity' ? 'numeric' : 'default'}
+                className="border p-2 mb-3 rounded"
+              />
+            ))}
 
             {!editingProduct && (
               <>
