@@ -1,4 +1,4 @@
-import { Client, Account, Databases, Query } from 'appwrite';
+import { Client, Account, Databases, Storage, Query } from 'appwrite';
 
 const client = new Client()
   .setEndpoint('https://cloud.appwrite.io/v1') // Your Appwrite endpoint
@@ -6,8 +6,10 @@ const client = new Client()
 
 const account = new Account(client);
 const databases = new Databases(client);
+const storage = new Storage(client);
 
 const DATABASE_ID = 'stock';
 const COLLECTION_ID = 'medicines';
+const BUCKET_ID = 'medicines-images'
 
-export { client, account, databases, DATABASE_ID, COLLECTION_ID, Query };
+export { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, Query };
