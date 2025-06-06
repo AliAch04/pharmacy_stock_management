@@ -246,6 +246,7 @@ export default function InventoryDashboard() {
               </>
             )}
 
+
             <View className="flex-row justify-between mt-4">
               <Button title="Annuler" onPress={() => setModalVisible(false)} />
               <Button title="Enregistrer" onPress={handleSave} />
