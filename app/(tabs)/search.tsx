@@ -78,7 +78,10 @@ const Search = () => {
       setHasMore(response.documents.length === limit);
       setError(null);
     } catch (err) {
-      setError(err.message);
+      console.error('Search error:', err);
+      setError(err.type === 'missing_index' 
+        ? 'La recherche avancée n\'est pas encore configurée. Essayez un terme plus simple.'
+        : 'Échec de la recherche. Veuillez réessayer.');
     } finally {
       setLoading(false);
     }
@@ -125,7 +128,7 @@ const Search = () => {
       <View style={styles.searchContainer}>
         <TextInput
           style={styles.searchInput}
-          placeholder="Search medicines..."
+          placeholder="Rechercher des médicaments..."
           value={searchTerm}
           onChangeText={setSearchTerm}
           autoCapitalize="none"
@@ -134,7 +137,7 @@ const Search = () => {
           style={styles.filterButton}
           onPress={() => setShowFilters(true)}
         >
-          <Text>Filters</Text>
+          <Text>Filtres</Text>
         </TouchableOpacity>
       </View>
 
@@ -144,7 +147,7 @@ const Search = () => {
           onPress={() => setSortField('name')}
         >
           <Text style={sortField === 'name' ? styles.activeSort : {}}>
-            Sort by Name {sortField === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
+            Trier par nom {sortField === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
@@ -152,14 +155,14 @@ const Search = () => {
           onPress={() => setSortField('price')}
         >
           <Text style={sortField === 'price' ? styles.activeSort : {}}>
-            Sort by Price {sortField === 'price' && (sortOrder === 'ASC' ? '↑' : '↓')}
+            Trier par prix {sortField === 'price' && (sortOrder === 'ASC' ? '↑' : '↓')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={styles.sortButton}
           onPress={toggleSortOrder}
         >
-          <Text>Toggle Order</Text>
+          <Text>Inverser l'ordre</Text>
         </TouchableOpacity>
       </View>
 
@@ -175,7 +178,7 @@ const Search = () => {
           contentContainerStyle={styles.list}
           ListEmptyComponent={
             <Text style={styles.emptyText}>
-              {searchTerm ? 'No medicines found' : 'Search for medicines...'}
+              {searchTerm ? 'Aucun médicament trouvé' : 'Recherchez des médicaments...'}
             </Text>
           }
           onEndReached={loadMore}
@@ -196,9 +199,9 @@ const Search = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Filters</Text>
+            <Text style={styles.modalTitle}>Filtres</Text>
             
-            <Text style={styles.filterLabel}>Category</Text>
+            <Text style={styles.filterLabel}>Catégorie</Text>
             <View style={styles.categoryContainer}>
               {categories.map(cat => (
                 <TouchableOpacity
@@ -217,7 +220,7 @@ const Search = () => {
               ))}
             </View>
 
-            <Text style={styles.filterLabel}>Price Range (${filters.minPrice} - ${filters.maxPrice})</Text>
+            <Text style={styles.filterLabel}>Fourchette de prix (${filters.minPrice} - ${filters.maxPrice})</Text>
             <View style={styles.priceInputContainer}>
               <TextInput
                 style={styles.priceInput}
@@ -261,7 +264,7 @@ const Search = () => {
             </View>
 
             <Button 
-              title="Apply Filters" 
+              title="Appliquer les filtres" 
               onPress={() => {
                 setShowFilters(false);
                 fetchMedicines(true);
@@ -408,15 +411,6 @@ const styles = StyleSheet.create({
   selectedCategory: {
     backgroundColor: '#1a9274',
   },
-  priceRangeContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  slider: {
-    flex: 1,
-    marginHorizontal: 10,
-  },
   priceInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -431,6 +425,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     textAlign: 'center',
     marginHorizontal: 5,
+  },
+  slider: {
+    flex: 1,
+    height: 40,
   },
 });
 

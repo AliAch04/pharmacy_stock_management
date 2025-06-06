@@ -16,16 +16,9 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Client, Databases, ID, Storage } from 'appwrite';
 
-const client = new Client();
-client.setEndpoint('https://[YOUR_APPWRITE_ENDPOINT]').setProject('[YOUR_PROJECT_ID]');
-
-const databases = new Databases(client);
-const storage = new Storage(client);
-const DATABASE_ID = '[YOUR_DATABASE_ID]';
-const COLLECTION_ID = 'products';
-const BUCKET_ID = '[YOUR_BUCKET_ID]';
+// ✅ Import depuis Appwrite config centralisée
+import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
 
 export default function InventoryDashboard() {
   const [products, setProducts] = useState([]);
@@ -50,11 +43,7 @@ export default function InventoryDashboard() {
     try {
       await databases.deleteDocument(DATABASE_ID, COLLECTION_ID, id);
       fetchProducts();
-      if (Platform.OS === 'android') {
-        ToastAndroid.show('Produit supprimé avec succès', ToastAndroid.SHORT);
-      } else {
-        Alert.alert('Succès', 'Produit supprimé avec succès');
-      }
+      showToast('Produit supprimé avec succès');
     } catch (error) {
       Alert.alert('Erreur', 'La suppression a échoué : ' + error.message);
     }
@@ -71,6 +60,14 @@ export default function InventoryDashboard() {
     );
   };
 
+  const showToast = (message) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Info', message);
+    }
+  };
+
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -78,8 +75,8 @@ export default function InventoryDashboard() {
       quality: 1,
     });
 
-    if (!result.cancelled) {
-      setForm({ ...form, image: result });
+    if (!result.canceled) {
+      setForm({ ...form, image: result.assets[0] });
     }
   };
 
@@ -111,7 +108,11 @@ export default function InventoryDashboard() {
       const response = await storage.createFile(
         BUCKET_ID,
         ID.unique(),
-        { uri: image.uri, name: 'image.jpg', type: 'image/jpeg' }
+        {
+          uri: image.uri,
+          name: 'image.jpg',
+          type: 'image/jpeg',
+        }
       );
       return response.$id;
     } catch (error) {
@@ -119,7 +120,8 @@ export default function InventoryDashboard() {
     }
   };
 
-  const getImageUrl = (id) => `https://[YOUR_APPWRITE_ENDPOINT]/v1/storage/buckets/${BUCKET_ID}/files/${id}/view?project=[YOUR_PROJECT_ID]`;
+  const getImageUrl = (id) =>
+    `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files/${id}/view?project=68424153002403801f6b`;
 
   const handleSave = async () => {
     try {
@@ -135,8 +137,8 @@ export default function InventoryDashboard() {
       } else {
         let imageId = null;
         if (form.image) {
-          const uploaded = await uploadImage(form.image);
-          imageId = uploaded;
+          const uploadedId = await uploadImage(form.image);
+          imageId = uploadedId;
         }
 
         payload = {
@@ -173,9 +175,9 @@ export default function InventoryDashboard() {
       </View>
 
       <ScrollView className="p-4">
-        {products.map((item, index) => (
+        {products.map((item) => (
           <View
-            key={index}
+            key={item.$id}
             className={`mb-4 p-4 rounded-lg shadow-sm ${item.status === 'Low Stock' ? 'bg-red-100' : 'bg-white'}`}
           >
             <View className="flex-row items-center mb-2">
@@ -199,7 +201,9 @@ export default function InventoryDashboard() {
               <View
                 className={`px-3 py-1 rounded-full ${item.status === 'Low Stock' ? 'bg-yellow-100 border border-yellow-500' : 'bg-blue-100'}`}
               >
-                <Text className={`text-xs ${item.status === 'Low Stock' ? 'text-yellow-700' : 'text-blue-700'}`}>{item.status}</Text>
+                <Text className={`text-xs ${item.status === 'Low Stock' ? 'text-yellow-700' : 'text-blue-700'}`}>
+                  {item.status}
+                </Text>
               </View>
               <View className="flex-row space-x-2">
                 <TouchableOpacity onPress={() => openModal(item)}>
@@ -214,20 +218,24 @@ export default function InventoryDashboard() {
         ))}
       </ScrollView>
 
-      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+      {/* Modal */}
+      <Modal visible={modalVisible} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white p-6 rounded-xl w-11/12">
-            <Text className="text-lg font-bold mb-4">{editingProduct ? 'Modifier le stock' : 'Ajouter un produit'}</Text>
+            <Text className="text-lg font-bold mb-4">
+              {editingProduct ? 'Modifier le stock' : 'Ajouter un produit'}
+            </Text>
 
-            {!editingProduct && ['name', 'description', 'type'].map((field) => (
-              <TextInput
-                key={field}
-                placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
-                value={form[field]}
-                onChangeText={(text) => setForm({ ...form, [field]: text })}
-                className="border p-2 mb-3 rounded"
-              />
-            ))}
+            {!editingProduct &&
+              ['name', 'description', 'type'].map((field) => (
+                <TextInput
+                  key={field}
+                  placeholder={field.charAt(0).toUpperCase() + field.slice(1)}
+                  value={form[field]}
+                  onChangeText={(text) => setForm({ ...form, [field]: text })}
+                  className="border p-2 mb-3 rounded"
+                />
+              ))}
 
             <TextInput
               placeholder="Stock"
@@ -242,10 +250,11 @@ export default function InventoryDashboard() {
                 <TouchableOpacity onPress={pickImage} className="bg-gray-200 p-3 rounded mb-3 items-center">
                   <Text>Sélectionner une image</Text>
                 </TouchableOpacity>
-                {form.image && <Image source={{ uri: form.image.uri }} style={{ width: 100, height: 100, marginBottom: 10 }} />}
+                {form.image && (
+                  <Image source={{ uri: form.image.uri }} style={{ width: 100, height: 100, marginBottom: 10 }} />
+                )}
               </>
             )}
-
 
             <View className="flex-row justify-between mt-4">
               <Button title="Annuler" onPress={() => setModalVisible(false)} />
