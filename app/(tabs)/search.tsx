@@ -9,9 +9,9 @@ import {
   Image, 
   TouchableOpacity,
   Modal,
-  Button,
-  Slider
+  Button
 } from 'react-native';
+import Slider from '@react-native-community/slider';
 import { getMedicines, getFilePreview, getCategories } from '@/services/medicines';
 
 const Search = () => {
@@ -217,24 +217,47 @@ const Search = () => {
               ))}
             </View>
 
-            <Text style={styles.filterLabel}>Price Range</Text>
-            <View style={styles.priceRangeContainer}>
-              <Text>${filters.minPrice.toFixed(2)}</Text>
+            <Text style={styles.filterLabel}>Price Range (${filters.minPrice} - ${filters.maxPrice})</Text>
+            <View style={styles.priceInputContainer}>
+              <TextInput
+                style={styles.priceInput}
+                value={String(filters.minPrice)}
+                onChangeText={(text) => {
+                  const value = parseFloat(text) || 0;
+                  setFilters(prev => ({
+                    ...prev,
+                    minPrice: Math.min(value, filters.maxPrice - 1)
+                  }));
+                }}
+                keyboardType="numeric"
+              />
               <Slider
                 style={styles.slider}
                 minimumValue={0}
                 maximumValue={1000}
                 step={10}
+                minimumTrackTintColor="#1fb28a"
+                maximumTrackTintColor="#d3d3d3"
+                thumbTintColor="#1a9274"
                 value={filters.maxPrice}
                 onValueChange={value => setFilters(prev => ({
                   ...prev,
                   maxPrice: value
                 }))}
-                minimumTrackTintColor="#1fb28a"
-                maximumTrackTintColor="#d3d3d3"
-                thumbTintColor="#1a9274"
+                onSlidingComplete={() => fetchMedicines(true)}
               />
-              <Text>${filters.maxPrice.toFixed(2)}</Text>
+              <TextInput
+                style={styles.priceInput}
+                value={String(filters.maxPrice)}
+                onChangeText={(text) => {
+                  const value = parseFloat(text) || 1000;
+                  setFilters(prev => ({
+                    ...prev,
+                    maxPrice: Math.max(value, filters.minPrice + 1)
+                  }));
+                }}
+                keyboardType="numeric"
+              />
             </View>
 
             <Button 
@@ -393,6 +416,21 @@ const styles = StyleSheet.create({
   slider: {
     flex: 1,
     marginHorizontal: 10,
+  },
+  priceInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  priceInput: {
+    width: 60,
+    height: 40,
+    borderColor: '#ccc',
+    borderWidth: 1,
+    borderRadius: 5,
+    paddingHorizontal: 8,
+    textAlign: 'center',
+    marginHorizontal: 5,
   },
 });
 
