@@ -1,6 +1,5 @@
 import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, Query } from './appwrite';
 
-// Get medicines with pagination, filters, and sorting
 export const getMedicines = async ({
   searchTerm = '',
   limit = 10,
@@ -12,7 +11,7 @@ export const getMedicines = async ({
   const queries = [
     Query.limit(limit),
     Query.offset(offset),
-    Query.order(sortField, sortOrder === 'ASC' ? 'asc' : 'desc')
+    sortOrder === 'ASC' ? Query.orderAsc(sortField) : Query.orderDesc(sortField)
   ];
 
   // Add search query if searchTerm exists
@@ -31,11 +30,17 @@ export const getMedicines = async ({
     queries.push(Query.lessThanEqual('price', filters.maxPrice));
   }
 
-  return await databases.listDocuments(
-    DATABASE_ID,
-    COLLECTION_ID,
-    queries
-  );
+  try {
+    const response = await databases.listDocuments(
+      DATABASE_ID,
+      COLLECTION_ID,
+      queries
+    );
+    return response;
+  } catch (error) {
+    console.error('Error fetching medicines:', error);
+    throw error;
+  }
 };
 
 // Get file preview URL
