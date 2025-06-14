@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
 import { Client, Databases, ID, Storage } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
 
@@ -24,10 +25,14 @@ client.setEndpoint('https://[YOUR_APPWRITE_ENDPOINT]').setProject('[YOUR_PROJECT
 
 const databases = new Databases(client);
 const storage = new Storage(client);
-const DATABASE_ID = '[YOUR_DATABASE_ID]';
-const COLLECTION_ID = 'products';
+
 const TRANSACTIONS_COLLECTION_ID = 'transactions';
-const BUCKET_ID = '[YOUR_BUCKET_ID]';
+
+
+
+
+ 
+
 
 const PRODUCT_TYPES = ['Médicament', 'Équipement', 'Supplément', 'Autre'];
 
@@ -35,6 +40,7 @@ export default function InventoryDashboard() {
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
+
   const [form, setForm] = useState({ name: '', description: '', stock: '', type: '', image: null });
   const [expandedMenu, setExpandedMenu] = useState(false);
   const [reduceStockModal, setReduceStockModal] = useState(false);
@@ -57,6 +63,7 @@ export default function InventoryDashboard() {
     }
   };
 
+
   const fetchProducts = async () => {
     try {
       const response = await databases.listDocuments(DATABASE_ID, COLLECTION_ID);
@@ -74,11 +81,7 @@ export default function InventoryDashboard() {
     try {
       await databases.deleteDocument(DATABASE_ID, COLLECTION_ID, id);
       fetchProducts();
-      if (Platform.OS === 'android') {
-        ToastAndroid.show('Produit supprimé avec succès', ToastAndroid.SHORT);
-      } else {
-        Alert.alert('Succès', 'Produit supprimé avec succès');
-      }
+      showToast('Produit supprimé avec succès');
     } catch (error) {
       Alert.alert('Erreur', 'La suppression a échoué : ' + error.message);
     }
@@ -95,6 +98,14 @@ export default function InventoryDashboard() {
     );
   };
 
+  const showToast = (message) => {
+    if (Platform.OS === 'android') {
+      ToastAndroid.show(message, ToastAndroid.SHORT);
+    } else {
+      Alert.alert('Info', message);
+    }
+  };
+
   const pickImage = async () => {
     let result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
@@ -102,7 +113,9 @@ export default function InventoryDashboard() {
       quality: 1,
     });
 
+
     if (!result.canceled && result.assets?.length > 0) {
+
       setForm({ ...form, image: result.assets[0] });
     }
   };
@@ -114,14 +127,23 @@ export default function InventoryDashboard() {
         ? {
             name: product.name,
             description: product.description,
-            stock: String(product.stock),
-            type: product.type || '',
+            category: product.category,
+            price: String(product.price),
+            quantity: String(product.quantity),
             image: null,
           }
-        : { name: '', description: '', stock: '', type: '', image: null }
+        : {
+            name: '',
+            description: '',
+            category: '',
+            price: '',
+            quantity: '',
+            image: null,
+          }
     );
     setModalVisible(true);
   };
+
 
   const getStockStatus = (stock) => {
     const s = parseInt(stock);
@@ -136,7 +158,11 @@ export default function InventoryDashboard() {
       const response = await storage.createFile(
         BUCKET_ID,
         ID.unique(),
-        { uri: image.uri, name: 'image.jpg', type: 'image/jpeg' }
+        {
+          uri: image.uri,
+          name: 'image.jpg',
+          type: 'image/jpeg',
+        }
       );
       return response.$id;
     } catch (error) {
@@ -144,10 +170,12 @@ export default function InventoryDashboard() {
     }
   };
 
-  const getImageUrl = (id) => `https://[YOUR_APPWRITE_ENDPOINT]/v1/storage/buckets/${BUCKET_ID}/files/${id}/view?project=[YOUR_PROJECT_ID]`;
+  const getImageUrl = (id) =>
+    `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files/${id}/view?project=68424153002403801f6b`;
 
   const handleSave = async () => {
     try {
+
       const newStock = parseInt(form.stock);
       if (isNaN(newStock)) throw new Error('Tous les champs sont requis');
       const status = getStockStatus(newStock);
@@ -202,6 +230,7 @@ export default function InventoryDashboard() {
           0,
           newStock
         );
+
       }
 
       fetchProducts();
@@ -271,6 +300,7 @@ export default function InventoryDashboard() {
       <StatusBar style="dark" />
       <View className="flex-row justify-between items-center p-4 bg-white shadow">
         <Text className="text-xl font-bold">Inventory Dashboard</Text>
+
         <View className="relative">
           <TouchableOpacity 
             className="bg-blue-500 px-4 py-2 rounded-md flex-row items-center" 
@@ -307,10 +337,12 @@ export default function InventoryDashboard() {
                 <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
                 <Text className="ml-2 text-gray-700">Réduire le stock</Text>
               </TouchableOpacity>
+
             </View>
           )}
         </View>
       </View>
+
 
       <View className="p-4">
         <ScrollView>
@@ -353,15 +385,19 @@ export default function InventoryDashboard() {
                   </TouchableOpacity>
                 </View>
               </View>
+
             </View>
           ))}
         </ScrollView>
       </View>
 
-      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+      <Modal visible={modalVisible} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
           <View className="bg-white p-6 rounded-xl w-11/12">
-            <Text className="text-lg font-bold mb-4">{editingProduct ? 'Modifier le stock' : 'Ajouter un produit'}</Text>
+            <Text className="text-lg font-bold mb-4">
+              {editingProduct ? 'Modifier un produit' : 'Ajouter un produit'}
+            </Text>
+
 
             {!editingProduct && (
               <>
@@ -390,20 +426,15 @@ export default function InventoryDashboard() {
               </>
             )}
 
-            <TextInput
-              placeholder="Stock"
-              value={form.stock}
-              onChangeText={(text) => setForm({ ...form, stock: text })}
-              keyboardType="numeric"
-              className="border p-2 mb-3 rounded"
-            />
 
             {!editingProduct && (
               <>
                 <TouchableOpacity onPress={pickImage} className="bg-gray-200 p-3 rounded mb-3 items-center">
                   <Text>Sélectionner une image</Text>
                 </TouchableOpacity>
-                {form.image && <Image source={{ uri: form.image.uri }} style={{ width: 100, height: 100, marginBottom: 10 }} />}
+                {form.image && (
+                  <Image source={{ uri: form.image.uri }} style={{ width: 100, height: 100, marginBottom: 10 }} />
+                )}
               </>
             )}
 
