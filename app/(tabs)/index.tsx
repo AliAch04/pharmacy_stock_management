@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
+import { DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
 import { Client, Databases, ID, Storage } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
 
