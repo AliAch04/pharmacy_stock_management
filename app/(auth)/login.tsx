@@ -19,11 +19,15 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      await account.createEmailSession(email, password);
+      // FIXED: Use the correct method name for Appwrite
+      await account.createEmailPasswordSession(email, password);
       setLoading(false);
-      router.replace('(tabs)/index');
+      Alert.alert('Success', 'Logged in successfully!');
+      // FIXED: Navigate to home page to match your app structure
+      router.replace('/home'); // or try '/(tabs)' if that's your main app route
     } catch (error: any) {
       setLoading(false);
+      console.error('Login failed:', error);
       Alert.alert('Login failed', error.message || 'An error occurred');
     }
   };
