@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -69,6 +69,26 @@ export default function InventoryDashboard() {
   const [sortOrder, setSortOrder] = useState('ASC');
   const [priceFilter, setPriceFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
   const [quantityFilter, setQuantityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = () => {
+      if (showDropdown) {
+        setShowDropdown(false);
+      }
+    };
+    
+    if (showDropdown) {
+      // Add a small delay to prevent immediate closing
+      const timer = setTimeout(() => {
+        // This would normally be handled by a touch outside detector
+        // For React Native, you'd use a TouchableWithoutFeedback wrapper
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showDropdown]);
 
   const fetchMedicines = async () => {
     try {
@@ -253,12 +273,29 @@ export default function InventoryDashboard() {
     return 'text-green-500';
   };
 
+  // Get low stock medicines for notifications
+  const getLowStockMedicines = () => {
+    return medicines.filter(medicine => 
+      medicine.quantity !== null && 
+      medicine.quantity !== undefined && 
+      medicine.quantity <= 5
+    );
+  };
+
+  const getNotificationCount = () => {
+    return getLowStockMedicines().length;
+  };
+
+  const handleNotificationPress = () => {
+    setShowNotifications(true);
+  };
+
   const renderMedicineItem = ({ item }: { item: Medicine }) => (
     <TouchableOpacity 
-      className="bg-white p-4 rounded-lg shadow-sm mb-3 mx-2"
+      className="bg-white p-4 rounded-lg shadow-sm mb-3 mx-2 z-101"
       onPress={() => openEditModal(item)}
     >
-      <View className="flex-row">
+      <View className="flex-row z-101">
         {item.imageId && (
           <Image 
             source={{ uri: getFilePreview(item.imageId) }} 
@@ -296,36 +333,88 @@ export default function InventoryDashboard() {
     <SafeAreaView className="flex-1 bg-gray-50">
       <StatusBar style="dark" />
       
+      {/* Overlay to close dropdown */}
+      {showDropdown && (
+        <TouchableOpacity 
+          className="absolute inset-0 z-40"
+          onPress={() => setShowDropdown(false)}
+          activeOpacity={1}
+        />
+      )}
+      
       {/* Header */}
       <View className="flex-row justify-between items-center p-4 bg-white shadow">
         <Text className="text-xl font-bold">Inventaire des Médicaments</Text>
         
-        <View className="flex-row space-x-2">
+        <View className="flex-row items-center space-x-3">
+          {/* Notification Bell */}
           <TouchableOpacity 
-            className="p-2 bg-blue-100 rounded-full"
-            onPress={() => setShowFilters(!showFilters)}
+            className="relative p-2 bg-yellow-100 rounded-full m-4"
+            onPress={handleNotificationPress}
           >
-            <Ionicons name="filter" size={20} color="#3B82F6" />
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            className="p-2 bg-green-100 rounded-full"
-            onPress={openAddModal}
-          >
-            <Ionicons name="add" size={20} color="#10B981" />
+            <Ionicons name="notifications" size={20} color="#F59E0B" />
+            {getNotificationCount() > 0 && (
+              <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center ">
+                <Text className="text-white text-xs font-bold">
+                  {getNotificationCount() > 9 ? '9+' : getNotificationCount()}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
 
-          <TouchableOpacity 
-            className="p-2 bg-red-100 rounded-full"
-            onPress={handleLogout}
-            disabled={isLoggingOut}
-          >
-            <Ionicons 
-              name={isLoggingOut ? "hourglass" : "log-out"} 
-              size={20} 
-              color="#EF4444" 
-            />
-          </TouchableOpacity>
+          {/* Dropdown Menu */}
+          <View className="relative -z-1">
+            <TouchableOpacity 
+              className="p-2 bg-gray-100 rounded-full"
+              onPress={() => setShowDropdown(!showDropdown)}
+            >
+              <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
+            </TouchableOpacity>
+
+            {showDropdown && (
+              <View className="absolute right-0 top-12 bg-white rounded-lg shadow-lg border border-gray-200 w-48 z-50">
+                <TouchableOpacity 
+                  className="flex-row items-center p-3 border-b border-gray-100"
+                  onPress={() => {
+                    setShowFilters(!showFilters);
+                    setShowDropdown(false);
+                  }}
+                >
+                  <Ionicons name="filter" size={18} color="#3B82F6" />
+                  <Text className="ml-3 text-gray-700">Filtres</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  className="flex-row items-center p-3 border-b border-gray-100"
+                  onPress={() => {
+                    openAddModal();
+                    setShowDropdown(false);
+                  }}
+                >
+                  <Ionicons name="add" size={18} color="#10B981" />
+                  <Text className="ml-3 text-gray-700">Ajouter médicament</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  className="flex-row items-center p-3"
+                  onPress={() => {
+                    handleLogout();
+                    setShowDropdown(false);
+                  }}
+                  disabled={isLoggingOut}
+                >
+                  <Ionicons 
+                    name={isLoggingOut ? "hourglass" : "log-out"} 
+                    size={18} 
+                    color="#EF4444" 
+                  />
+                  <Text className="ml-3 text-gray-700">
+                    {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
@@ -422,7 +511,7 @@ export default function InventoryDashboard() {
 
       {/* Content */}
       {loading && !refreshing ? (
-        <View className="flex-1 justify-center items-center">
+        <View className="flex-1 justify-center items-center z-100">
           <ActivityIndicator size="large" color="#3B82F6" />
           <Text className="mt-2 text-gray-500">Chargement des médicaments...</Text>
         </View>
@@ -519,6 +608,71 @@ export default function InventoryDashboard() {
                 <Text className="text-white text-center font-semibold">Enregistrer</Text>
               </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notifications Modal */}
+      <Modal visible={showNotifications} animationType="slide" transparent>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5">
+            <View className="flex-row justify-between items-center mb-4">
+              <Text className="text-lg font-bold">Notifications de Stock</Text>
+              <TouchableOpacity onPress={() => setShowNotifications(false)}>
+                <Ionicons name="close" size={24} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {getLowStockMedicines().length === 0 ? (
+              <View className="items-center py-8">
+                <Ionicons name="checkmark-circle" size={48} color="#10B981" />
+                <Text className="text-gray-500 mt-4 text-center">
+                  Aucune alerte de stock !
+                </Text>
+                <Text className="text-gray-400 mt-2 text-center">
+                  Tous vos médicaments ont un stock suffisant
+                </Text>
+              </View>
+            ) : (
+              <FlatList
+                data={getLowStockMedicines()}
+                keyExtractor={(item) => item.$id}
+                renderItem={({ item }) => (
+                  <View className="bg-red-50 p-4 rounded-lg mb-3 border-l-4 border-red-500">
+                    <View className="flex-row items-center mb-2">
+                      <Ionicons name="warning" size={20} color="#EF4444" />
+                      <Text className="font-bold text-red-700 ml-2">Stock Faible</Text>
+                    </View>
+                    <Text className="font-semibold text-gray-800">{item.name}</Text>
+                    <Text className="text-gray-600 text-sm">
+                      Quantité restante: {item.quantity} unité(s)
+                    </Text>
+                    {item.category && (
+                      <Text className="text-gray-500 text-xs mt-1">
+                        Catégorie: {item.category}
+                      </Text>
+                    )}
+                    <TouchableOpacity
+                      className="mt-2 bg-red-500 px-3 py-1 rounded-full self-start"
+                      onPress={() => {
+                        setShowNotifications(false);
+                        openEditModal(item);
+                      }}
+                    >
+                      <Text className="text-white text-xs">Réapprovisionner</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+                showsVerticalScrollIndicator={false}
+              />
+            )}
+
+            <TouchableOpacity
+              className="bg-blue-500 px-6 py-3 rounded-lg mt-4"
+              onPress={() => setShowNotifications(false)}
+            >
+              <Text className="text-white text-center font-semibold">Fermer</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
