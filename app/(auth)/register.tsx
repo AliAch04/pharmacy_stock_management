@@ -23,50 +23,54 @@ export default function RegisterPage() {
   const handleChange = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
   const handleRegister = async () => {
-  const { name, email, password, confirm } = form;
+    const { name, email, password, confirm } = form;
 
-  if (!name || !email || !password || !confirm) {
-    Alert.alert('Error', 'Please fill in all fields');
-    return;
-  }
-  if (password !== confirm) {
-    Alert.alert('Error', 'Passwords do not match');
-    return;
-  }
-  if (password.length < 6) {
-    Alert.alert('Error', 'Password too short');
-    return;
-  }
+    if (!name || !email || !password || !confirm) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+    if (password !== confirm) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+    if (password.length < 6) {
+      Alert.alert('Error', 'Password too short');
+      return;
+    }
 
-  try {
-    setLoading(true);
+    try {
+      setLoading(true);
 
-    // 1. Create account (Appwrite hashes password internally)
-    const user = await account.create(ID.unique(), email, password, name);
+      // 1. Create account
+      const user = await account.create(ID.unique(), email, password, name);
+      if (!user) throw new Error('Failed to create account');
 
-    // 2. Create user document in 'users' collection
-    await databases.createDocument(
-      databaseId,
-      usersCollectionId,
-      ID.unique(), // document ID
-      {
-        userId: user.$id,
-        name,
-        email
-      }
-    );
+      // 2. Create document in users collection
+      await databases.createDocument(
+        databaseId,
+        usersCollectionId,
+        ID.unique(),
+        {
+          userId: user.$id,
+          name,
+          email
+        }
+      );
 
-    // 3. Create email session
-    await account.createEmailSession(email, password);
+      // 3. Login session - FIXED: Pass email and password as separate parameters
+      await account.createEmailPasswordSession(email, password);
 
-    setLoading(false);
-    Alert.alert('Success', 'Account created successfully!');
-    router.replace('(tabs)/index');
-  } catch (error: any) {
-    setLoading(false);
-    Alert.alert('Registration failed', error.message || 'An error occurred');
-  }
-};
+      setLoading(false);
+      Alert.alert('Success', 'Account created successfully!');
+
+      // 4. Redirect to home - FIXED: Use correct path based on your file structure
+      router.replace('/(tabs)/dashboard'); // or try '/app/home' if that's your structure
+    } catch (error: any) {
+      setLoading(false);
+      console.error('Registration failed:', error);
+      Alert.alert('Registration Error', error.message || 'Something went wrong');
+    }
+  };
 
   return (
     <SafeAreaView style={styles.container}>
