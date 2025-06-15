@@ -13,7 +13,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { account, ID } from '../../lib/appwrite';
+import { account, ID, databases, databaseId, usersCollectionId } from '../../lib/appwrite';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -23,37 +23,50 @@ export default function RegisterPage() {
   const handleChange = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
 
   const handleRegister = async () => {
-    const { name, email, password, confirm } = form;
+  const { name, email, password, confirm } = form;
 
-    if (!name || !email || !password || !confirm) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-    if (password !== confirm) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password too short');
-      return;
-    }
+  if (!name || !email || !password || !confirm) {
+    Alert.alert('Error', 'Please fill in all fields');
+    return;
+  }
+  if (password !== confirm) {
+    Alert.alert('Error', 'Passwords do not match');
+    return;
+  }
+  if (password.length < 6) {
+    Alert.alert('Error', 'Password too short');
+    return;
+  }
 
-    try {
-      setLoading(true);
-      // Create new user account
-      await account.create(ID.unique(), email, password, name);
+  try {
+    setLoading(true);
 
-      // Log user in immediately after registration
-      await account.createEmailSession(email, password);
+    // 1. Create account (Appwrite hashes password internally)
+    const user = await account.create(ID.unique(), email, password, name);
 
-      setLoading(false);
-      Alert.alert('Success', 'Account created successfully!');
-      router.replace('(tabs)/index');
-    } catch (error: any) {
-      setLoading(false);
-      Alert.alert('Registration failed', error.message || 'An error occurred');
-    }
-  };
+    // 2. Create user document in 'users' collection
+    await databases.createDocument(
+      databaseId,
+      usersCollectionId,
+      ID.unique(), // document ID
+      {
+        userId: user.$id,
+        name,
+        email
+      }
+    );
+
+    // 3. Create email session
+    await account.createEmailSession(email, password);
+
+    setLoading(false);
+    Alert.alert('Success', 'Account created successfully!');
+    router.replace('(tabs)/index');
+  } catch (error: any) {
+    setLoading(false);
+    Alert.alert('Registration failed', error.message || 'An error occurred');
+  }
+};
 
   return (
     <SafeAreaView style={styles.container}>
