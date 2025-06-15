@@ -41,11 +41,19 @@ export default function RegisterPage() {
     try {
       setLoading(true);
 
-      // 1. Create account
+      // 1. First, delete any existing session to avoid conflicts
+      try {
+        await account.deleteSession('current');
+      } catch (sessionError) {
+        // If no session exists, this will throw an error, which is fine
+        console.log('No existing session to delete');
+      }
+
+      // 2. Create account
       const user = await account.create(ID.unique(), email, password, name);
       if (!user) throw new Error('Failed to create account');
 
-      // 2. Create document in users collection
+      // 3. Create document in users collection
       await databases.createDocument(
         databaseId,
         usersCollectionId,
@@ -57,14 +65,14 @@ export default function RegisterPage() {
         }
       );
 
-      // 3. Login session - FIXED: Pass email and password as separate parameters
+      // 4. Create new session after account creation
       await account.createEmailPasswordSession(email, password);
 
       setLoading(false);
       Alert.alert('Success', 'Account created successfully!');
 
-      // 4. Redirect to home - FIXED: Use correct path based on your file structure
-      router.replace('/(tabs)/dashboard'); // or try '/app/home' if that's your structure
+      // 5. Redirect to home
+      router.replace('/(tabs)');
     } catch (error: any) {
       setLoading(false);
       console.error('Registration failed:', error);

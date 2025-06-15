@@ -24,7 +24,7 @@ export default function LoginPage() {
       setLoading(false);
       Alert.alert('Success', 'Logged in successfully!');
       // FIXED: Navigate to home page to match your app structure
-      router.replace('/home'); // or try '/(tabs)' if that's your main app route
+      router.replace('/(tabs)'); // or try '/(tabs)' if that's your main app route
     } catch (error: any) {
       setLoading(false);
       console.error('Login failed:', error);
