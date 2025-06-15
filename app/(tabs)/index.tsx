@@ -16,22 +16,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
-import { Client, Databases, ID, Storage } from 'appwrite';
+import { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, Quer } from '@/services/appwrite';
+import {  } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
 
-const client = new Client();
-client.setEndpoint('https://[YOUR_APPWRITE_ENDPOINT]').setProject('[YOUR_PROJECT_ID]');
 
-const databases = new Databases(client);
-const storage = new Storage(client);
-
-const TRANSACTIONS_COLLECTION_ID = 'transactions';
-
-
-
-
- 
 
 
 const PRODUCT_TYPES = ['Médicament', 'Équipement', 'Supplément', 'Autre'];
