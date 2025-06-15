@@ -1,8 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
-  ScrollView,
   TouchableOpacity,
   Alert,
   TextInput,
@@ -11,49 +10,156 @@ import {
   Platform,
   ToastAndroid,
   Image,
+  FlatList,
+  ActivityIndicator,
+  RefreshControl,
+  ScrollView,
 } from 'react-native';
-import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, } from '@/services/appwrite';
-import { getMedicines, getFilePreview } from '../../services/medicines';
-import { ID } from 'appwrite';
+import { account, databases, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/services/appwrite';
+import { getFilePreview } from '../../services/medicines';
+import { ID, Query } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
-import ActionsMenu from '@/constants/ActionsMenu';
 
-
-const PRODUCT_TYPES = ['Médicament', 'Équipement', 'Supplément', 'Autre'];
+// Add this to your constants file
+const LOGS_COLLECTION_ID = 'logs'; // Replace with your actual logs collection ID
 
 interface Medicine {
   $id: string;
   name: string;
   description: string;
-  price: number;
-  quantity: number;
+  price: number | null;
+  quantity: number | null;
   imageId?: string;
   category: string;
+  status?: string;
+}
+
+interface FormState {
+  name: string;
+  description: string;
+  price: string;
+  quantity: string;
+  category: string;
+  image?: any;
+}
+
+interface StockLogForm {
+  medicineId: string;
+  medicineName: string;
+  quantitySold: string;
+  notes: string;
 }
 
 export default function InventoryDashboard() {
   const router = useRouter();
-  const [products, setProducts] = useState([]);
-  const [modalVisible, setModalVisible] = useState(false);
-  const [editingProduct, setEditingProduct] = useState(null);
-
-  const [form, setForm] = useState({ name: '', description: '', stock: '', type: '', image: null });
-  const [expandedMenu, setExpandedMenu] = useState(false);
-  const [reduceStockModal, setReduceStockModal] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState('');
-  const [quantityToReduce, setQuantityToReduce] = useState('');
-  const [isLoggingOut, setIsLoggingOut] = useState(false);
-
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  const [modalVisible, setModalVisible] = useState(false);
+  const [stockLogModalVisible, setStockLogModalVisible] = useState(false);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Medicine | null>(null);
 
-  // Logout function
+  // Form state
+  const [form, setForm] = useState<FormState>({
+    name: '',
+    description: '',
+    price: '',
+    quantity: '',
+    category: '',
+  });
+
+  // Stock log form state
+  const [stockLogForm, setStockLogForm] = useState<StockLogForm>({
+    medicineId: '',
+    medicineName: '',
+    quantitySold: '',
+    notes: '',
+  });
+
+  // Filter states
+  const [limit, setLimit] = useState(10);
+  const [sortField, setSortField] = useState('name');
+  const [sortOrder, setSortOrder] = useState('ASC');
+  const [priceFilter, setPriceFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
+  const [quantityFilter, setQuantityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
+  const [showDropdown, setShowDropdown] = useState(false);
+  const [showNotifications, setShowNotifications] = useState(false);
+
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleOutsideClick = () => {
+      if (showDropdown) {
+        setShowDropdown(false);
+      }
+    };
+    
+    if (showDropdown) {
+      // Add a small delay to prevent immediate closing
+      const timer = setTimeout(() => {
+        // This would normally be handled by a touch outside detector
+        // For React Native, you'd use a TouchableWithoutFeedback wrapper
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [showDropdown]);
+
+  const fetchMedicines = async () => {
+    try {
+      setLoading(true);
+      setRefreshing(true);
+      
+      const queries = [
+        Query.limit(limit),
+        sortOrder === 'ASC' ? Query.orderAsc(sortField) : Query.orderDesc(sortField)
+      ];
+
+      if (priceFilter === 'low') {
+        queries.push(Query.lessThanEqual('price', 10));
+      } else if (priceFilter === 'medium') {
+        queries.push(Query.between('price', 10, 50));
+      } else if (priceFilter === 'high') {
+        queries.push(Query.greaterThanEqual('price', 50));
+      }
+
+      if (quantityFilter === 'low') {
+        queries.push(Query.lessThanEqual('quantity', 5));
+      } else if (quantityFilter === 'medium') {
+        queries.push(Query.between('quantity', 5, 20));
+      } else if (quantityFilter === 'high') {
+        queries.push(Query.greaterThanEqual('quantity', 20));
+      }
+
+      const response = await databases.listDocuments(
+        DATABASE_ID,
+        COLLECTION_ID,
+        queries
+      );
+
+      setMedicines(response.documents as Medicine[]);
+    } catch (err: any) {
+      console.error('Failed to fetch medicines:', err);
+      setError('Failed to load medicines. Please try again.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMedicines();
+  }, [limit, sortField, sortOrder, priceFilter, quantityFilter]);
+
+  const onRefresh = () => {
+    fetchMedicines();
+  };
+
   const handleLogout = async () => {
     Alert.alert(
       'Déconnexion',
@@ -66,10 +172,10 @@ export default function InventoryDashboard() {
           onPress: async () => {
             try {
               setIsLoggingOut(true);
-              await account.deleteSession('current'); // Terminate current session
+              await account.deleteSession('current');
               showToast('Déconnecté avec succès');
-              router.replace('/(auth)/login'); // Navigate back to login
-            } catch (error) {
+              router.replace('/(auth)/login');
+            } catch (error: any) {
               console.error('Logout error:', error);
               Alert.alert('Erreur', 'Échec de la déconnexion : ' + error.message);
             } finally {
@@ -81,78 +187,7 @@ export default function InventoryDashboard() {
     );
   };
 
-  const logTransaction = async (productId, productName, type, quantity, oldStock, newStock) => {
-    try {
-      await databases.createDocument(DATABASE_ID, TRANSACTIONS_COLLECTION_ID, ID.unique(), {
-        productId,
-        productName,
-        type,
-        quantity,
-        oldStock,
-        newStock,
-        createdAt: new Date().toISOString(),
-      });
-    } catch (error) {
-      console.error("Erreur lors de l'enregistrement de la transaction:", error);
-    }
-  };
-
-  const fetchProducts = async () => {
-    try {
-      const response = await databases.listDocuments(DATABASE_ID, COLLECTION_ID);
-      setProducts(response.documents);
-    } catch (error) {
-      console.error('Erreur de récupération :', error);
-    }
-  };
-
-  useEffect(() => {
-    const fetchMedicines = async () => {
-      try {
-        setLoading(true);
-        const response = await getMedicines({
-          limit: 20,
-          sortField: 'name',
-          sortOrder: 'ASC'
-        });
-        setMedicines(response.documents);
-      } catch (err) {
-        console.error('Failed to fetch medicines:', err);
-        setError('Failed to load medicines. Please try again.');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchMedicines();
-  }, []);
-
-  useEffect(() => {
-    fetchProducts();
-  }, []);
-
-  const handleDelete = async (id) => {
-    try {
-      await databases.deleteDocument(DATABASE_ID, COLLECTION_ID, id);
-      fetchProducts();
-      showToast('Produit supprimé avec succès');
-    } catch (error) {
-      Alert.alert('Erreur', 'La suppression a échoué : ' + error.message);
-    }
-  };
-
-  const confirmDelete = (id) => {
-    Alert.alert(
-      'Supprimer le produit',
-      'Etes-vous sûr de vouloir supprimer ce produit ?',
-      [
-        { text: 'Annuler', style: 'cancel' },
-        { text: 'Supprimer', style: 'destructive', onPress: () => handleDelete(id) },
-      ]
-    );
-  };
-
-  const showToast = (message) => {
+  const showToast = (message: string) => {
     if (Platform.OS === 'android') {
       ToastAndroid.show(message, ToastAndroid.SHORT);
     } else {
@@ -160,236 +195,735 @@ export default function InventoryDashboard() {
     }
   };
 
-  const pickImage = async () => {
-    let result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 1,
-    });
-
-    if (!result.canceled && result.assets?.length > 0) {
-      setForm({ ...form, image: result.assets[0] });
-    }
-  };
-
-  const openModal = (product = null) => {
+  const openEditModal = (product: Medicine) => {
     setEditingProduct(product);
-    setForm(
-      product
-        ? {
-            name: product.name,
-            description: product.description,
-            type: product.type,
-            stock: String(product.stock),
-            image: null,
-          }
-        : {
-            name: '',
-            description: '',
-            type: '',
-            stock: '',
-            image: null,
-          }
-    );
+    setForm({
+      name: product.name || '',
+      description: product.description || '',
+      price: product.price?.toString() || '0',
+      quantity: product.quantity?.toString() || '0',
+      category: product.category || '',
+    });
     setModalVisible(true);
   };
 
-  const getStockStatus = (stock) => {
-    const s = parseInt(stock);
-    if (isNaN(s)) return 'Indéterminé';
-    if (s <= 5) return 'Stock Faible';
-    if (s <= 20) return 'Stock Moyen';
-    return 'En Stock';
+  const openAddModal = () => {
+    setEditingProduct(null);
+    setForm({
+      name: '',
+      description: '',
+      price: '',
+      quantity: '',
+      category: '',
+    });
+    setModalVisible(true);
   };
 
-  const uploadImage = async (image) => {
-    try {
-      const response = await storage.createFile(BUCKET_ID, ID.unique(), {
-        uri: image.uri,
-        name: 'image.jpg',
-        type: 'image/jpeg',
-      });
-      return response.$id;
-    } catch (error) {
-      throw new Error("Echec de l'upload d'image");
-    }
+  const openStockLogModal = () => {
+    setStockLogForm({
+      medicineId: '',
+      medicineName: '',
+      quantitySold: '',
+      notes: '',
+    });
+    setStockLogModalVisible(true);
+    setShowDropdown(false);
   };
-
-  const getImageUrl = (id) =>
-    `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files/${id}/view?project=68424153002403801f6b`;
 
   const handleSave = async () => {
     try {
-      const newStock = parseInt(form.stock);
-      if (!form.name.trim() || !form.description.trim() || !form.type || isNaN(newStock)) {
-        throw new Error('Tous les champs sont requis');
+      const price = parseFloat(form.price);
+      const quantity = parseInt(form.quantity);
+      
+      if (!form.name.trim() || !form.description.trim() || isNaN(price) || isNaN(quantity)) {
+        throw new Error('Tous les champs sont requis et doivent être valides');
       }
 
-      const status = getStockStatus(newStock);
-      let payload;
+      if (price < 0 || quantity < 0) {
+        throw new Error('Le prix et la quantité doivent être positifs');
+      }
+
+      const status = getStockStatus(quantity);
+      const payload = {
+        name: form.name.trim(),
+        description: form.description.trim(),
+        price,
+        quantity,
+        category: form.category.trim(),
+        status,
+      };
 
       if (editingProduct) {
-        const oldStock = editingProduct.stock;
-        payload = {
-          name: form.name,
-          description: form.description,
-          stock: newStock,
-          type: form.type,
-          status,
-        };
-
-        await databases.updateDocument(DATABASE_ID, COLLECTION_ID, editingProduct.$id, payload);
-
-        await logTransaction(
+        // Update existing product
+        await databases.updateDocument(
+          DATABASE_ID,
+          COLLECTION_ID,
           editingProduct.$id,
-          editingProduct.name,
-          'edit',
-          Math.abs(newStock - oldStock),
-          oldStock,
-          newStock
+          payload
         );
+        showToast('Médicament mis à jour');
       } else {
-        let imageId = null;
-        if (form.image) {
-          const uploaded = await uploadImage(form.image);
-          imageId = uploaded;
-        }
-
-        payload = {
-          name: form.name,
-          description: form.description,
-          stock: newStock,
-          type: form.type,
-          status,
-          ...(imageId && { imageId }),
-        };
-
-        const response = await databases.createDocument(DATABASE_ID, COLLECTION_ID, ID.unique(), payload);
-
-        await logTransaction(response.$id, form.name, 'add', newStock, 0, newStock);
+        // Create new product
+        await databases.createDocument(
+          DATABASE_ID,
+          COLLECTION_ID,
+          ID.unique(),
+          payload
+        );
+        showToast('Médicament ajouté');
       }
 
-      fetchProducts();
+      fetchMedicines();
       setModalVisible(false);
-    } catch (error) {
+    } catch (error: any) {
       Alert.alert('Erreur', error.message);
     }
   };
 
+  const handleStockLog = async () => {
+    try {
+      const quantitySold = parseInt(stockLogForm.quantitySold);
+      
+      if (!stockLogForm.medicineId || !stockLogForm.medicineName || isNaN(quantitySold)) {
+        throw new Error('Veuillez sélectionner un médicament et entrer une quantité valide');
+      }
+
+      if (quantitySold <= 0) {
+        throw new Error('La quantité vendue doit être positive');
+      }
+
+      // Find the selected medicine
+      const selectedMedicine = medicines.find(med => med.$id === stockLogForm.medicineId);
+      if (!selectedMedicine) {
+        throw new Error('Médicament non trouvé');
+      }
+
+      if (selectedMedicine.quantity === null || selectedMedicine.quantity < quantitySold) {
+        throw new Error('Stock insuffisant pour cette vente');
+      }
+
+      const previousQuantity = selectedMedicine.quantity;
+      const newQuantity = previousQuantity - quantitySold;
+
+      // Update medicine quantity
+      await databases.updateDocument(
+        DATABASE_ID,
+        COLLECTION_ID,
+        stockLogForm.medicineId,
+        {
+          quantity: newQuantity,
+          status: getStockStatus(newQuantity)
+        }
+      );
+
+      // Create log entry
+      await databases.createDocument(
+        DATABASE_ID,
+        LOGS_COLLECTION_ID,
+        ID.unique(),
+        {
+          medicineId: stockLogForm.medicineId,
+          medicineName: stockLogForm.medicineName,
+          transactionType: 'sale',
+          quantityChanged: -quantitySold, // Negative because it's a sale
+          previousQuantity,
+          newQuantity,
+          timestamp: new Date().toISOString(),
+          notes: stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
+        }
+      );
+
+      showToast(`Vente enregistrée: ${quantitySold} unité(s) de ${stockLogForm.medicineName}`);
+      setStockLogModalVisible(false);
+      fetchMedicines(); // Refresh the list
+    } catch (error: any) {
+      Alert.alert('Erreur', error.message);
+    }
+  };
+
+  const getStockStatus = (quantity: number | null): string => {
+    if (quantity === null || quantity === undefined) return 'Quantité inconnue';
+    if (quantity <= 5) return 'Stock Faible';
+    if (quantity <= 20) return 'Stock Moyen';
+    return 'En Stock';
+  };
+
+  const formatPrice = (price: number | null): string => {
+    if (price === null || price === undefined) return 'Prix non défini';
+    return `$${price.toFixed(2)}`;
+  };
+
+  const formatQuantity = (quantity: number | null): string => {
+    if (quantity === null || quantity === undefined) return 'Quantité inconnue';
+    return `${quantity} en stock`;
+  };
+
+  const getQuantityColor = (quantity: number | null): string => {
+    if (quantity === null || quantity === undefined) return 'text-gray-500';
+    if (quantity <= 5) return 'text-red-500';
+    if (quantity <= 20) return 'text-yellow-500';
+    return 'text-green-500';
+  };
+
+  // Get low stock medicines for notifications
+  const getLowStockMedicines = () => {
+    return medicines.filter(medicine => 
+      medicine.quantity !== null && 
+      medicine.quantity !== undefined && 
+      medicine.quantity <= 5
+    );
+  };
+
+  const getNotificationCount = () => {
+    return getLowStockMedicines().length;
+  };
+
+  const handleNotificationPress = () => {
+    setShowNotifications(true);
+  };
+
+  const renderMedicineItem = ({ item }: { item: Medicine }) => (
+    <TouchableOpacity 
+      className="bg-white p-4 rounded-xl shadow-sm mb-4 mx-4 border border-gray-100"
+      onPress={() => openEditModal(item)}
+      style={{ elevation: 2 }}
+    >
+      <View className="flex-row">
+        {item.imageId && (
+          <Image 
+            source={{ uri: getFilePreview(item.imageId) }} 
+            className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
+            resizeMode="cover"
+          />
+        )}
+        <View className="flex-1">
+          <Text className="font-bold text-lg text-gray-800 mb-1">{item.name || 'Nom non défini'}</Text>
+          <Text className="text-gray-500 text-sm mb-2 leading-5">
+            {item.description && item.description.length > 50 
+              ? `${item.description.substring(0, 50)}...` 
+              : item.description || 'Aucune description'}
+          </Text>
+          <View className="flex-row justify-between items-center mb-2">
+            <Text className="text-blue-600 font-bold text-lg">{formatPrice(item.price)}</Text>
+            <Text className={`font-semibold ${getQuantityColor(item.quantity)}`}>
+              {formatQuantity(item.quantity)}
+            </Text>
+          </View>
+          <View className="flex-row justify-between items-center">
+            <View className={`px-3 py-1 rounded-full ${
+              item.quantity !== null && item.quantity <= 5 ? 'bg-red-100' :
+              item.quantity !== null && item.quantity <= 20 ? 'bg-yellow-100' : 'bg-green-100'
+            }`}>
+              <Text className={`text-xs font-medium ${
+                item.quantity !== null && item.quantity <= 5 ? 'text-red-700' :
+                item.quantity !== null && item.quantity <= 20 ? 'text-yellow-700' : 'text-green-700'
+              }`}>
+                {getStockStatus(item.quantity)}
+              </Text>
+            </View>
+            {item.category && (
+              <Text className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded-full">
+                {item.category}
+              </Text>
+            )}
+          </View>
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+
   return (
-    <SafeAreaView className="flex-1 bg-blue-50">
+    <SafeAreaView className="flex-1 bg-gray-50">
       <StatusBar style="dark" />
-      <View className="flex-row justify-between items-center p-4 bg-white shadow">
-        <Text className="text-xl font-bold">Tableau de Bord</Text>
+      
+      {/* Header */}
+      <View className="flex-row justify-between items-center p-4 bg-white shadow-sm border-b border-gray-100">
+        <Text className="text-xl font-bold text-gray-800">Inventaire des Médicaments</Text>
+        
+        <View className="flex-row items-center space-x-3">
+          {/* Notification Bell */}
+          <TouchableOpacity 
+            className="relative p-3 bg-yellow-50 rounded-full border border-yellow-200"
+            onPress={handleNotificationPress}
+          >
+            <Ionicons name="notifications" size={20} color="#F59E0B" />
+            {getNotificationCount() > 0 && (
+              <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center">
+                <Text className="text-white text-xs font-bold">
+                  {getNotificationCount() > 9 ? '9+' : getNotificationCount()}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
 
-        <View className="flex-row items-center space-x-2">
-
-          {/* Actions Menu */}
-          <View className="relative z-20">
-            <TouchableOpacity
-              className="bg-blue-500 px-4 py-2 rounded-md flex-row items-center"
-              onPress={() => setExpandedMenu(!expandedMenu)}
+          {/* Dropdown Menu */}
+          <View className="relative">
+            <TouchableOpacity 
+              className="p-3 bg-gray-50 rounded-full border border-gray-200"
+              onPress={() => setShowDropdown(!showDropdown)}
             >
-              <Text className="text-white font-semibold mr-2">Actions</Text>
-              <Ionicons name={expandedMenu ? 'chevron-up' : 'chevron-down'} size={16} color="white" />
+              <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
             </TouchableOpacity>
 
-            {expandedMenu && (
-              <View
-                className="absolute top-12 right-0 bg-white border border-gray-200 rounded-lg shadow-lg w-48"
-                style={{ zIndex: 100 }}
-              >
-                <TouchableOpacity
-                  className="p-3 border-b border-gray-100 flex-row items-center"
-                  onPress={() => {
-                    openModal();
-                    setExpandedMenu(false);
-                  }}
+            {showDropdown && (
+              <>
+                {/* Overlay to close dropdown */}
+                <TouchableOpacity 
+                  className="absolute inset-0 w-screen h-screen -left-96 -top-96"
+                  onPress={() => setShowDropdown(false)}
+                  activeOpacity={1}
+                  style={{ zIndex: 999 }}
+                />
+                
+                {/* Dropdown content */}
+                <View 
+                  className="absolute right-0 top-12 bg-white rounded-xl shadow-lg border border-gray-200 w-56"
+                  style={{ zIndex: 1000, elevation: 10 }}
                 >
-                  <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
-                  <Text className="ml-2 text-gray-700">Ajouter un produit</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={() => {
+                      setShowFilters(!showFilters);
+                      setShowDropdown(false);
+                    }}
+                  >
+                    <View className="w-8 h-8 bg-blue-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="filter" size={16} color="#3B82F6" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Filtres</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={() => {
+                      openAddModal();
+                      setShowDropdown(false);
+                    }}
+                  >
+                    <View className="w-8 h-8 bg-green-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="add" size={16} color="#10B981" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Ajouter médicament</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  className="p-3 flex-row items-center"
-                  onPress={() => {
-                    setReduceStockModal(true);
-                    setExpandedMenu(false);
-                  }}
-                >
-                  <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
-                  <Text className="ml-2 text-gray-700">Réduire le stock</Text>
-                </TouchableOpacity>
-
-                {/* Logout Button */}
-              <TouchableOpacity
-                className="bg-red-500 px-3 py-2 rounded-md flex-row items-center mr-2"
-                onPress={handleLogout}
-                disabled={isLoggingOut}
-              >
-                <Ionicons name="log-out-outline" size={16} color="white" />
-                <Text className="text-white font-semibold ml-1">
-                  {isLoggingOut ? 'Déconnexion...' : 'Déconnecter'}
-                </Text>
-              </TouchableOpacity>
-              </View>
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={openStockLogModal}
+                  >
+                    <View className="w-8 h-8 bg-orange-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="receipt" size={16} color="#F97316" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Enregistrer une vente</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4"
+                    onPress={() => {
+                      handleLogout();
+                      setShowDropdown(false);
+                    }}
+                    disabled={isLoggingOut}
+                  >
+                    <View className="w-8 h-8 bg-red-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons 
+                        name={isLoggingOut ? "hourglass" : "log-out"} 
+                        size={16} 
+                        color="#EF4444" 
+                      />
+                    </View>
+                    <Text className="text-gray-700 font-medium">
+                      {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
           </View>
         </View>
       </View>
 
+      {/* Filter Panel */}
+      {showFilters && (
+        <View className="bg-white p-4 mx-4 rounded-xl shadow-sm mb-4 border border-gray-100 mt-2">
+          <Text className="font-bold mb-4 text-gray-800 text-lg">Filtres</Text>
+          
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Nombre à afficher</Text>
+            <View className="bg-gray-50 rounded-lg border border-gray-200">
+              <Picker
+                selectedValue={limit}
+                onValueChange={(itemValue) => setLimit(itemValue)}
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Picker.Item label="3 médicaments" value={3} />
+                <Picker.Item label="5 médicaments" value={5} />
+                <Picker.Item label="10 médicaments" value={10} />
+                <Picker.Item label="20 médicaments" value={20} />
+                <Picker.Item label="50 médicaments" value={50} />
+              </Picker>
+            </View>
+          </View>
+          
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Trier par</Text>
+            <View className="bg-gray-50 rounded-lg border border-gray-200">
+              <Picker
+                selectedValue={sortField}
+                onValueChange={(itemValue) => setSortField(itemValue)}
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Picker.Item label="Nom" value="name" />
+                <Picker.Item label="Prix" value="price" />
+                <Picker.Item label="Quantité" value="quantity" />
+              </Picker>
+            </View>
+            <View className="flex-row mt-3">
+              <TouchableOpacity
+                className={`px-4 py-2 rounded-l-lg border ${sortOrder === 'ASC' ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`}
+                onPress={() => setSortOrder('ASC')}
+              >
+                <Text className={`font-medium ${sortOrder === 'ASC' ? 'text-white' : 'text-gray-700'}`}>Croissant</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className={`px-4 py-2 rounded-r-lg border-l-0 border ${sortOrder === 'DESC' ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`}
+                onPress={() => setSortOrder('DESC')}
+              >
+                <Text className={`font-medium ${sortOrder === 'DESC' ? 'text-white' : 'text-gray-700'}`}>Décroissant</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+          
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Filtrer par prix</Text>
+            <View className="flex-row flex-wrap">
+              {[
+                { key: 'all', label: 'Tous' },
+                { key: 'low', label: '< $10' },
+                { key: 'medium', label: '$10-$50' },
+                { key: 'high', label: '> $50' }
+              ].map((filter) => (
+                <TouchableOpacity
+                  key={filter.key}
+                  className={`px-4 py-2 mr-2 mb-2 rounded-full border ${
+                    priceFilter === filter.key ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'
+                  }`}
+                  onPress={() => setPriceFilter(filter.key as any)}
+                >
+                  <Text className={`font-medium ${priceFilter === filter.key ? 'text-white' : 'text-gray-700'}`}>
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+          
+          <View className="mb-2">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Filtrer par quantité</Text>
+            <View className="flex-row flex-wrap">
+              {[
+                { key: 'all', label: 'Tous' },
+                { key: 'low', label: 'Faible (<5)' },
+                { key: 'medium', label: 'Moyen (5-20)' },
+                { key: 'high', label: 'Élevé (>20)' }
+              ].map((filter) => (
+                <TouchableOpacity
+                  key={filter.key}
+                  className={`px-4 py-2 mr-2 mb-2 rounded-full border ${
+                    quantityFilter === filter.key ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'
+                  }`}
+                  onPress={() => setQuantityFilter(filter.key as any)}
+                >
+                  <Text className={`font-medium ${quantityFilter === filter.key ? 'text-white' : 'text-gray-700'}`}>
+                    {filter.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Content */}
+      {loading && !refreshing ? (
+        <View className="flex-1 justify-center items-center">
+          <ActivityIndicator size="large" color="#3B82F6" />
+          <Text className="mt-4 text-gray-500 font-medium">Chargement des médicaments...</Text>
+        </View>
+      ) : error ? (
+        <View className="flex-1 justify-center items-center px-4">
+          <View className="bg-red-50 p-6 rounded-xl items-center">
+            <Ionicons name="alert-circle" size={48} color="#EF4444" />
+            <Text className="text-red-500 text-center mt-4 font-medium">{error}</Text>
+            <TouchableOpacity 
+              className="mt-4 bg-red-500 px-6 py-3 rounded-lg"
+              onPress={fetchMedicines}
+            >
+              <Text className="text-white font-semibold">Réessayer</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      ) : (
+        <FlatList
+          data={medicines}
+          renderItem={renderMedicineItem}
+          keyExtractor={(item) => item.$id}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              colors={['#3B82F6']}
+            />
+          }
+          ListEmptyComponent={
+            <View className="flex-1 justify-center items-center mt-20">
+              <View className="bg-white p-8 rounded-xl items-center mx-4 shadow-sm border border-gray-100">
+                <Ionicons name="medical" size={48} color="#9CA3AF" />
+                <Text className="text-gray-500 mt-4 text-lg font-medium">Aucun médicament trouvé</Text>
+                <Text className="text-gray-400 mt-2 text-center px-4 leading-6">
+                  Ajoutez des médicaments à votre inventaire ou modifiez vos filtres
+                </Text>
+              </View>
+            </View>
+          }
+          contentContainerStyle={{ paddingBottom: 20 }}
+          showsVerticalScrollIndicator={false}
+        />
+      )}
+
+      {/* Add/Edit Product Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white p-6 rounded-xl w-11/12">
-            <Text className="text-lg font-bold mb-4">
-              {editingProduct ? 'Modifier un produit' : 'Ajouter un produit'}
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <Text className="text-xl font-bold mb-6 text-gray-800">
+              {editingProduct ? 'Modifier un médicament' : 'Ajouter un médicament'}
             </Text>
 
-            <TextInput
-              placeholder="Nom"
-              value={form.name}
-              onChangeText={(text) => setForm({ ...form, name: text })}
-              className="border p-2 mb-3 rounded"
-            />
-            <TextInput
-              placeholder="Description"
-              value={form.description}
-              onChangeText={(text) => setForm({ ...form, description: text })}
-              className="border p-2 mb-3 rounded"
-            />
-            <TextInput
-              placeholder="Stock"
-              value={form.stock}
-              onChangeText={(text) => setForm({ ...form, stock: text })}
-              keyboardType="numeric"
-              className="border p-2 mb-3 rounded"
-            />
-            <Picker
-              selectedValue={form.type}
-              onValueChange={(itemValue) => setForm({ ...form, type: itemValue })}
-              style={{ marginBottom: 10 }}
-            >
-              <Picker.Item label="-- Sélectionnez un type --" value="" />
-              {PRODUCT_TYPES.map((type, i) => (
-                <Picker.Item key={i} label={type} value={type} />
-              ))}
-            </Picker>
-
-            {!editingProduct && (
-              <>
-                <TouchableOpacity onPress={pickImage} className="bg-gray-200 p-3 rounded mb-3 items-center">
-                  <Text>Sélectionner une image</Text>
-                </TouchableOpacity>
-                {form.image && (
-                  <Image source={{ uri: form.image.uri }} style={{ width: 100, height: 100, marginBottom: 10 }} />
-                )}
-              </>
-            )}
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TextInput
+                placeholder="Nom du médicament *"
+                value={form.name}
+                onChangeText={(text) => setForm({...form, name: text})}
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Description *"
+                value={form.description}
+                onChangeText={(text) => setForm({...form, description: text})}
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Prix ($) *"
+                value={form.price}
+                onChangeText={(text) => setForm({...form, price: text})}
+                keyboardType="decimal-pad"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Quantité *"
+                value={form.quantity}
+                onChangeText={(text) => setForm({...form, quantity: text})}
+                keyboardType="numeric"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Catégorie"
+                value={form.category}
+                onChangeText={(text) => setForm({...form, category: text})}
+                className="border border-gray-300 p-4 mb-6 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+            </ScrollView>
 
             <View className="flex-row justify-between mt-4">
-              <Button title="Annuler" onPress={() => setModalVisible(false)} />
-              <Button title="Enregistrer" onPress={handleSave} />
+              <TouchableOpacity
+                className="bg-gray-100 px-6 py-4 rounded-lg flex-1 mr-3 border border-gray-200"
+                onPress={() => setModalVisible(false)}
+              >
+                <Text className="text-center font-semibold text-gray-700">Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-blue-500 px-6 py-4 rounded-lg flex-1 ml-3 shadow-sm"
+                onPress={handleSave}
+              >
+                <Text className="text-white text-center font-semibold">Enregistrer</Text>
+              </TouchableOpacity>
             </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Stock Log Modal */}
+      <Modal visible={stockLogModalVisible} animationType="slide" transparent>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <View className="flex-row items-center mb-6">
+              <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center mr-3">
+                <Ionicons name="receipt" size={20} color="#F97316" />
+              </View>
+              <Text className="text-xl font-bold text-gray-800">Enregistrer une vente</Text>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View className="mb-4">
+                <Text className="text-sm text-gray-600 mb-2 font-medium">Sélectionner un médicament *</Text>
+                <View className="border border-gray-300 rounded-lg bg-gray-50">
+                  <Picker
+                    selectedValue={stockLogForm.medicineId}
+                    onValueChange={(itemValue, itemIndex) => {
+                      const selectedMed = medicines.find(med => med.$id === itemValue);
+                      setStockLogForm({
+                        ...stockLogForm,
+                        medicineId: itemValue,
+                        medicineName: selectedMed?.name || ''
+                      });
+                    }}
+                    style={{ backgroundColor: 'transparent' }}
+                  >
+                    <Picker.Item label="-- Sélectionner un médicament --" value="" />
+                    {medicines.map((medicine) => (
+                      <Picker.Item 
+                        key={medicine.$id} 
+                        label={`${medicine.name} (Stock: ${medicine.quantity || 0})`} 
+                        value={medicine.$id} 
+                      />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+
+              <TextInput
+                placeholder="Quantité vendue *"
+                value={stockLogForm.quantitySold}
+                onChangeText={(text) => setStockLogForm({...stockLogForm, quantitySold: text})}
+                keyboardType="numeric"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <TextInput
+                placeholder="Notes (optionnel)"
+                value={stockLogForm.notes}
+                onChangeText={(text) => setStockLogForm({...stockLogForm, notes: text})}
+                className="border border-gray-300 p-4 mb-6 rounded-lg bg-gray-50 font-medium"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              {stockLogForm.medicineId && (
+                <View className="bg-blue-50 p-4 rounded-lg mb-4 border border-blue-200">
+                  <Text className="text-blue-700 font-medium mb-1">Informations du médicament:</Text>
+                  <Text className="text-blue-600 text-sm">
+                    Nom: {stockLogForm.medicineName}
+                  </Text>
+                  <Text className="text-blue-600 text-sm">
+                    Stock actuel: {medicines.find(med => med.$id === stockLogForm.medicineId)?.quantity || 0} unités
+                  </Text>
+                  {stockLogForm.quantitySold && !isNaN(parseInt(stockLogForm.quantitySold)) && (
+                    <Text className="text-blue-600 text-sm">
+                      Stock après vente: {(medicines.find(med => med.$id === stockLogForm.medicineId)?.quantity || 0) - parseInt(stockLogForm.quantitySold)} unités
+                    </Text>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+
+            <View className="flex-row justify-between mt-4">
+              <TouchableOpacity
+                className="bg-gray-100 px-6 py-4 rounded-lg flex-1 mr-3 border border-gray-200"
+                onPress={() => setStockLogModalVisible(false)}
+              >
+                <Text className="text-center font-semibold text-gray-700">Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-orange-500 px-6 py-4 rounded-lg flex-1 ml-3 shadow-sm"
+                onPress={handleStockLog}
+              >
+                <Text className="text-white text-center font-semibold">Enregistrer la vente</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Notifications Modal */}
+      <Modal visible={showNotifications} animationType="slide" transparent>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <View className="flex-row justify-between items-center mb-6">
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 bg-yellow-100 rounded-full items-center justify-center mr-3">
+                  <Ionicons name="notifications" size={20} color="#F59E0B" />
+                </View>
+                <Text className="text-xl font-bold text-gray-800">Notifications de Stock</Text>
+              </View>
+              <TouchableOpacity 
+                className="p-2 bg-gray-100 rounded-full"
+                onPress={() => setShowNotifications(false)}
+              >
+                <Ionicons name="close" size={20} color="#6B7280" />
+              </TouchableOpacity>
+            </View>
+
+            {getLowStockMedicines().length === 0 ? (
+              <View className="items-center py-12">
+                <View className="w-16 h-16 bg-green-100 rounded-full items-center justify-center mb-4">
+                  <Ionicons name="checkmark-circle" size={32} color="#10B981" />
+                </View>
+                <Text className="text-gray-800 text-lg font-medium mb-2">
+                  Aucune alerte de stock !
+                </Text>
+                <Text className="text-gray-500 text-center leading-6">
+                  Tous vos médicaments ont un stock suffisant
+                </Text>
+              </View>
+            ) : (
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {getLowStockMedicines().map((item) => (
+                  <View key={item.$id} className="bg-red-50 p-4 rounded-xl mb-4 border-l-4 border-red-500">
+                    <View className="flex-row items-center mb-3">
+                      <View className="w-8 h-8 bg-red-100 rounded-full items-center justify-center mr-3">
+                        <Ionicons name="warning" size={16} color="#EF4444" />
+                      </View>
+                      <Text className="font-bold text-red-700 flex-1">Stock Faible</Text>
+                    </View>
+                    <Text className="font-semibold text-gray-800 mb-1">{item.name}</Text>
+                    <Text className="text-gray-600 text-sm mb-2">
+                      Quantité restante: {item.quantity} unité(s)
+                    </Text>
+                    {item.category && (
+                      <Text className="text-gray-500 text-xs mb-3">
+                        Catégorie: {item.category}
+                      </Text>
+                    )}
+                    <TouchableOpacity
+                      className="bg-red-500 px-4 py-2 rounded-lg self-start shadow-sm"
+                      onPress={() => {
+                        setShowNotifications(false);
+                        openEditModal(item);
+                      }}
+                    >
+                      <Text className="text-white text-sm font-medium">Réapprovisionner</Text>
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <TouchableOpacity
+              className="bg-blue-500 px-6 py-4 rounded-lg mt-4 shadow-sm"
+              onPress={() => setShowNotifications(false)}
+            >
+              <Text className="text-white text-center font-semibold">Fermer</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </Modal>
