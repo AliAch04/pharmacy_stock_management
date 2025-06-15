@@ -13,6 +13,7 @@ import {
   FlatList,
   ActivityIndicator,
   RefreshControl,
+  ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
@@ -22,6 +23,9 @@ import { account, databases, DATABASE_ID, COLLECTION_ID, BUCKET_ID } from '@/ser
 import { getFilePreview } from '../../services/medicines';
 import { ID, Query } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
+
+// Add this to your constants file
+const LOGS_COLLECTION_ID = 'logs'; // Replace with your actual logs collection ID
 
 interface Medicine {
   $id: string;
@@ -43,6 +47,13 @@ interface FormState {
   image?: any;
 }
 
+interface StockLogForm {
+  medicineId: string;
+  medicineName: string;
+  quantitySold: string;
+  notes: string;
+}
+
 export default function InventoryDashboard() {
   const router = useRouter();
   const [medicines, setMedicines] = useState<Medicine[]>([]);
@@ -50,6 +61,7 @@ export default function InventoryDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
+  const [stockLogModalVisible, setStockLogModalVisible] = useState(false);
   const [isLoggingOut, setIsLoggingOut] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Medicine | null>(null);
@@ -61,6 +73,14 @@ export default function InventoryDashboard() {
     price: '',
     quantity: '',
     category: '',
+  });
+
+  // Stock log form state
+  const [stockLogForm, setStockLogForm] = useState<StockLogForm>({
+    medicineId: '',
+    medicineName: '',
+    quantitySold: '',
+    notes: '',
   });
 
   // Filter states
@@ -199,6 +219,17 @@ export default function InventoryDashboard() {
     setModalVisible(true);
   };
 
+  const openStockLogModal = () => {
+    setStockLogForm({
+      medicineId: '',
+      medicineName: '',
+      quantitySold: '',
+      notes: '',
+    });
+    setStockLogModalVisible(true);
+    setShowDropdown(false);
+  };
+
   const handleSave = async () => {
     try {
       const price = parseFloat(form.price);
@@ -249,6 +280,67 @@ export default function InventoryDashboard() {
     }
   };
 
+  const handleStockLog = async () => {
+    try {
+      const quantitySold = parseInt(stockLogForm.quantitySold);
+      
+      if (!stockLogForm.medicineId || !stockLogForm.medicineName || isNaN(quantitySold)) {
+        throw new Error('Veuillez sélectionner un médicament et entrer une quantité valide');
+      }
+
+      if (quantitySold <= 0) {
+        throw new Error('La quantité vendue doit être positive');
+      }
+
+      // Find the selected medicine
+      const selectedMedicine = medicines.find(med => med.$id === stockLogForm.medicineId);
+      if (!selectedMedicine) {
+        throw new Error('Médicament non trouvé');
+      }
+
+      if (selectedMedicine.quantity === null || selectedMedicine.quantity < quantitySold) {
+        throw new Error('Stock insuffisant pour cette vente');
+      }
+
+      const previousQuantity = selectedMedicine.quantity;
+      const newQuantity = previousQuantity - quantitySold;
+
+      // Update medicine quantity
+      await databases.updateDocument(
+        DATABASE_ID,
+        COLLECTION_ID,
+        stockLogForm.medicineId,
+        {
+          quantity: newQuantity,
+          status: getStockStatus(newQuantity)
+        }
+      );
+
+      // Create log entry
+      await databases.createDocument(
+        DATABASE_ID,
+        LOGS_COLLECTION_ID,
+        ID.unique(),
+        {
+          medicineId: stockLogForm.medicineId,
+          medicineName: stockLogForm.medicineName,
+          transactionType: 'sale',
+          quantityChanged: -quantitySold, // Negative because it's a sale
+          previousQuantity,
+          newQuantity,
+          timestamp: new Date().toISOString(),
+          notes: stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
+        }
+      );
+
+      showToast(`Vente enregistrée: ${quantitySold} unité(s) de ${stockLogForm.medicineName}`);
+      setStockLogModalVisible(false);
+      fetchMedicines(); // Refresh the list
+    } catch (error: any) {
+      Alert.alert('Erreur', error.message);
+    }
+  };
+
   const getStockStatus = (quantity: number | null): string => {
     if (quantity === null || quantity === undefined) return 'Quantité inconnue';
     if (quantity <= 5) return 'Stock Faible';
@@ -292,38 +384,49 @@ export default function InventoryDashboard() {
 
   const renderMedicineItem = ({ item }: { item: Medicine }) => (
     <TouchableOpacity 
-      className="bg-white p-4 rounded-lg shadow-sm mb-3 mx-2 z-101"
+      className="bg-white p-4 rounded-xl shadow-sm mb-4 mx-4 border border-gray-100"
       onPress={() => openEditModal(item)}
+      style={{ elevation: 2 }}
     >
-      <View className="flex-row z-101">
+      <View className="flex-row">
         {item.imageId && (
           <Image 
             source={{ uri: getFilePreview(item.imageId) }} 
-            className="w-20 h-20 rounded-lg mr-3"
+            className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
             resizeMode="cover"
           />
         )}
         <View className="flex-1">
-          <Text className="font-bold text-lg">{item.name || 'Nom non défini'}</Text>
-          <Text className="text-gray-500 text-sm mb-1">
-            {item.description && item.description.length > 15 
-              ? `${item.description.substring(0, 15)}...` 
+          <Text className="font-bold text-lg text-gray-800 mb-1">{item.name || 'Nom non défini'}</Text>
+          <Text className="text-gray-500 text-sm mb-2 leading-5">
+            {item.description && item.description.length > 50 
+              ? `${item.description.substring(0, 50)}...` 
               : item.description || 'Aucune description'}
           </Text>
-          <View className="flex-row justify-between items-center">
-            <Text className="text-blue-600 font-bold">{formatPrice(item.price)}</Text>
+          <View className="flex-row justify-between items-center mb-2">
+            <Text className="text-blue-600 font-bold text-lg">{formatPrice(item.price)}</Text>
             <Text className={`font-semibold ${getQuantityColor(item.quantity)}`}>
               {formatQuantity(item.quantity)}
             </Text>
           </View>
-          <Text className="text-xs text-gray-400 mt-1">
-            {getStockStatus(item.quantity)}
-          </Text>
-          {item.category && (
-            <Text className="text-xs text-blue-400 mt-1">
-              Catégorie: {item.category}
-            </Text>
-          )}
+          <View className="flex-row justify-between items-center">
+            <View className={`px-3 py-1 rounded-full ${
+              item.quantity !== null && item.quantity <= 5 ? 'bg-red-100' :
+              item.quantity !== null && item.quantity <= 20 ? 'bg-yellow-100' : 'bg-green-100'
+            }`}>
+              <Text className={`text-xs font-medium ${
+                item.quantity !== null && item.quantity <= 5 ? 'text-red-700' :
+                item.quantity !== null && item.quantity <= 20 ? 'text-yellow-700' : 'text-green-700'
+              }`}>
+                {getStockStatus(item.quantity)}
+              </Text>
+            </View>
+            {item.category && (
+              <Text className="text-xs text-blue-500 bg-blue-50 px-2 py-1 rounded-full">
+                {item.category}
+              </Text>
+            )}
+          </View>
         </View>
       </View>
     </TouchableOpacity>
@@ -333,28 +436,19 @@ export default function InventoryDashboard() {
     <SafeAreaView className="flex-1 bg-gray-50">
       <StatusBar style="dark" />
       
-      {/* Overlay to close dropdown */}
-      {showDropdown && (
-        <TouchableOpacity 
-          className="absolute inset-0 z-40"
-          onPress={() => setShowDropdown(false)}
-          activeOpacity={1}
-        />
-      )}
-      
       {/* Header */}
-      <View className="flex-row justify-between items-center p-4 bg-white shadow">
-        <Text className="text-xl font-bold">Inventaire des Médicaments</Text>
+      <View className="flex-row justify-between items-center p-4 bg-white shadow-sm border-b border-gray-100">
+        <Text className="text-xl font-bold text-gray-800">Inventaire des Médicaments</Text>
         
         <View className="flex-row items-center space-x-3">
           {/* Notification Bell */}
           <TouchableOpacity 
-            className="relative p-2 bg-yellow-100 rounded-full m-4"
+            className="relative p-3 bg-yellow-50 rounded-full border border-yellow-200"
             onPress={handleNotificationPress}
           >
             <Ionicons name="notifications" size={20} color="#F59E0B" />
             {getNotificationCount() > 0 && (
-              <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center ">
+              <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center">
                 <Text className="text-white text-xs font-bold">
                   {getNotificationCount() > 9 ? '9+' : getNotificationCount()}
                 </Text>
@@ -363,56 +457,86 @@ export default function InventoryDashboard() {
           </TouchableOpacity>
 
           {/* Dropdown Menu */}
-          <View className="relative -z-1">
+          <View className="relative">
             <TouchableOpacity 
-              className="p-2 bg-gray-100 rounded-full"
+              className="p-3 bg-gray-50 rounded-full border border-gray-200"
               onPress={() => setShowDropdown(!showDropdown)}
             >
               <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
             </TouchableOpacity>
 
             {showDropdown && (
-              <View className="absolute right-0 top-12 bg-white rounded-lg shadow-lg border border-gray-200 w-48 z-50">
+              <>
+                {/* Overlay to close dropdown */}
                 <TouchableOpacity 
-                  className="flex-row items-center p-3 border-b border-gray-100"
-                  onPress={() => {
-                    setShowFilters(!showFilters);
-                    setShowDropdown(false);
-                  }}
-                >
-                  <Ionicons name="filter" size={18} color="#3B82F6" />
-                  <Text className="ml-3 text-gray-700">Filtres</Text>
-                </TouchableOpacity>
+                  className="absolute inset-0 w-screen h-screen -left-96 -top-96"
+                  onPress={() => setShowDropdown(false)}
+                  activeOpacity={1}
+                  style={{ zIndex: 999 }}
+                />
                 
-                <TouchableOpacity 
-                  className="flex-row items-center p-3 border-b border-gray-100"
-                  onPress={() => {
-                    openAddModal();
-                    setShowDropdown(false);
-                  }}
+                {/* Dropdown content */}
+                <View 
+                  className="absolute right-0 top-12 bg-white rounded-xl shadow-lg border border-gray-200 w-56"
+                  style={{ zIndex: 1000, elevation: 10 }}
                 >
-                  <Ionicons name="add" size={18} color="#10B981" />
-                  <Text className="ml-3 text-gray-700">Ajouter médicament</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  className="flex-row items-center p-3"
-                  onPress={() => {
-                    handleLogout();
-                    setShowDropdown(false);
-                  }}
-                  disabled={isLoggingOut}
-                >
-                  <Ionicons 
-                    name={isLoggingOut ? "hourglass" : "log-out"} 
-                    size={18} 
-                    color="#EF4444" 
-                  />
-                  <Text className="ml-3 text-gray-700">
-                    {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={() => {
+                      setShowFilters(!showFilters);
+                      setShowDropdown(false);
+                    }}
+                  >
+                    <View className="w-8 h-8 bg-blue-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="filter" size={16} color="#3B82F6" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Filtres</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={() => {
+                      openAddModal();
+                      setShowDropdown(false);
+                    }}
+                  >
+                    <View className="w-8 h-8 bg-green-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="add" size={16} color="#10B981" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Ajouter médicament</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4 border-b border-gray-100"
+                    onPress={openStockLogModal}
+                  >
+                    <View className="w-8 h-8 bg-orange-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons name="receipt" size={16} color="#F97316" />
+                    </View>
+                    <Text className="text-gray-700 font-medium">Enregistrer une vente</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity 
+                    className="flex-row items-center p-4"
+                    onPress={() => {
+                      handleLogout();
+                      setShowDropdown(false);
+                    }}
+                    disabled={isLoggingOut}
+                  >
+                    <View className="w-8 h-8 bg-red-50 rounded-full items-center justify-center mr-3">
+                      <Ionicons 
+                        name={isLoggingOut ? "hourglass" : "log-out"} 
+                        size={16} 
+                        color="#EF4444" 
+                      />
+                    </View>
+                    <Text className="text-gray-700 font-medium">
+                      {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
             )}
           </View>
         </View>
@@ -420,87 +544,97 @@ export default function InventoryDashboard() {
 
       {/* Filter Panel */}
       {showFilters && (
-        <View className="bg-white p-4 mx-2 rounded-lg shadow-sm mb-2">
-          <Text className="font-bold mb-2">Filtres</Text>
+        <View className="bg-white p-4 mx-4 rounded-xl shadow-sm mb-4 border border-gray-100 mt-2">
+          <Text className="font-bold mb-4 text-gray-800 text-lg">Filtres</Text>
           
-          <View className="mb-3">
-            <Text className="text-sm text-gray-500 mb-1">Nombre à afficher</Text>
-            <Picker
-              selectedValue={limit}
-              onValueChange={(itemValue) => setLimit(itemValue)}
-              style={{ backgroundColor: '#f3f4f6' }}
-            >
-              <Picker.Item label="3 médicaments" value={3} />
-              <Picker.Item label="5 médicaments" value={5} />
-              <Picker.Item label="10 médicaments" value={10} />
-              <Picker.Item label="20 médicaments" value={20} />
-              <Picker.Item label="50 médicaments" value={50} />
-            </Picker>
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Nombre à afficher</Text>
+            <View className="bg-gray-50 rounded-lg border border-gray-200">
+              <Picker
+                selectedValue={limit}
+                onValueChange={(itemValue) => setLimit(itemValue)}
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Picker.Item label="3 médicaments" value={3} />
+                <Picker.Item label="5 médicaments" value={5} />
+                <Picker.Item label="10 médicaments" value={10} />
+                <Picker.Item label="20 médicaments" value={20} />
+                <Picker.Item label="50 médicaments" value={50} />
+              </Picker>
+            </View>
           </View>
           
-          <View className="mb-3">
-            <Text className="text-sm text-gray-500 mb-1">Trier par</Text>
-            <Picker
-              selectedValue={sortField}
-              onValueChange={(itemValue) => setSortField(itemValue)}
-              style={{ backgroundColor: '#f3f4f6' }}
-            >
-              <Picker.Item label="Nom" value="name" />
-              <Picker.Item label="Prix" value="price" />
-              <Picker.Item label="Quantité" value="quantity" />
-            </Picker>
-            <View className="flex-row mt-2">
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Trier par</Text>
+            <View className="bg-gray-50 rounded-lg border border-gray-200">
+              <Picker
+                selectedValue={sortField}
+                onValueChange={(itemValue) => setSortField(itemValue)}
+                style={{ backgroundColor: 'transparent' }}
+              >
+                <Picker.Item label="Nom" value="name" />
+                <Picker.Item label="Prix" value="price" />
+                <Picker.Item label="Quantité" value="quantity" />
+              </Picker>
+            </View>
+            <View className="flex-row mt-3">
               <TouchableOpacity
-                className={`px-3 py-1 rounded-l-lg ${sortOrder === 'ASC' ? 'bg-blue-500' : 'bg-gray-200'}`}
+                className={`px-4 py-2 rounded-l-lg border ${sortOrder === 'ASC' ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`}
                 onPress={() => setSortOrder('ASC')}
               >
-                <Text className={sortOrder === 'ASC' ? 'text-white' : 'text-gray-700'}>Croissant</Text>
+                <Text className={`font-medium ${sortOrder === 'ASC' ? 'text-white' : 'text-gray-700'}`}>Croissant</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                className={`px-3 py-1 rounded-r-lg ${sortOrder === 'DESC' ? 'bg-blue-500' : 'bg-gray-200'}`}
+                className={`px-4 py-2 rounded-r-lg border-l-0 border ${sortOrder === 'DESC' ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`}
                 onPress={() => setSortOrder('DESC')}
               >
-                <Text className={sortOrder === 'DESC' ? 'text-white' : 'text-gray-700'}>Décroissant</Text>
+                <Text className={`font-medium ${sortOrder === 'DESC' ? 'text-white' : 'text-gray-700'}`}>Décroissant</Text>
               </TouchableOpacity>
             </View>
           </View>
           
-          <View className="mb-3">
-            <Text className="text-sm text-gray-500 mb-1">Filtrer par prix</Text>
+          <View className="mb-4">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Filtrer par prix</Text>
             <View className="flex-row flex-wrap">
-              {['all', 'low', 'medium', 'high'].map((filter) => (
+              {[
+                { key: 'all', label: 'Tous' },
+                { key: 'low', label: '< $10' },
+                { key: 'medium', label: '$10-$50' },
+                { key: 'high', label: '> $50' }
+              ].map((filter) => (
                 <TouchableOpacity
-                  key={filter}
-                  className={`px-3 py-1 mr-2 mb-2 rounded-full ${
-                    priceFilter === filter ? 'bg-blue-500' : 'bg-gray-200'
+                  key={filter.key}
+                  className={`px-4 py-2 mr-2 mb-2 rounded-full border ${
+                    priceFilter === filter.key ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'
                   }`}
-                  onPress={() => setPriceFilter(filter as any)}
+                  onPress={() => setPriceFilter(filter.key as any)}
                 >
-                  <Text className={priceFilter === filter ? 'text-white' : 'text-gray-700'}>
-                    {filter === 'all' ? 'Tous' : 
-                     filter === 'low' ? '< $10' : 
-                     filter === 'medium' ? '$10-$50' : '> $50'}
+                  <Text className={`font-medium ${priceFilter === filter.key ? 'text-white' : 'text-gray-700'}`}>
+                    {filter.label}
                   </Text>
                 </TouchableOpacity>
               ))}
             </View>
           </View>
           
-          <View className="mb-3">
-            <Text className="text-sm text-gray-500 mb-1">Filtrer par quantité</Text>
+          <View className="mb-2">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Filtrer par quantité</Text>
             <View className="flex-row flex-wrap">
-              {['all', 'low', 'medium', 'high'].map((filter) => (
+              {[
+                { key: 'all', label: 'Tous' },
+                { key: 'low', label: 'Faible (<5)' },
+                { key: 'medium', label: 'Moyen (5-20)' },
+                { key: 'high', label: 'Élevé (>20)' }
+              ].map((filter) => (
                 <TouchableOpacity
-                  key={filter}
-                  className={`px-3 py-1 mr-2 mb-2 rounded-full ${
-                    quantityFilter === filter ? 'bg-blue-500' : 'bg-gray-200'
+                  key={filter.key}
+                  className={`px-4 py-2 mr-2 mb-2 rounded-full border ${
+                    quantityFilter === filter.key ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'
                   }`}
-                  onPress={() => setQuantityFilter(filter as any)}
+                  onPress={() => setQuantityFilter(filter.key as any)}
                 >
-                  <Text className={quantityFilter === filter ? 'text-white' : 'text-gray-700'}>
-                    {filter === 'all' ? 'Tous' : 
-                     filter === 'low' ? 'Faible (<5)' : 
-                     filter === 'medium' ? 'Moyen (5-20)' : 'Élevé (>20)'}
+                  <Text className={`font-medium ${quantityFilter === filter.key ? 'text-white' : 'text-gray-700'}`}>
+                    {filter.label}
                   </Text>
                 </TouchableOpacity>
               ))}
@@ -511,20 +645,22 @@ export default function InventoryDashboard() {
 
       {/* Content */}
       {loading && !refreshing ? (
-        <View className="flex-1 justify-center items-center z-100">
+        <View className="flex-1 justify-center items-center">
           <ActivityIndicator size="large" color="#3B82F6" />
-          <Text className="mt-2 text-gray-500">Chargement des médicaments...</Text>
+          <Text className="mt-4 text-gray-500 font-medium">Chargement des médicaments...</Text>
         </View>
       ) : error ? (
         <View className="flex-1 justify-center items-center px-4">
-          <Ionicons name="alert-circle" size={48} color="#EF4444" />
-          <Text className="text-red-500 text-center mt-2">{error}</Text>
-          <TouchableOpacity 
-            className="mt-4 bg-blue-500 px-6 py-3 rounded-lg"
-            onPress={fetchMedicines}
-          >
-            <Text className="text-white font-semibold">Réessayer</Text>
-          </TouchableOpacity>
+          <View className="bg-red-50 p-6 rounded-xl items-center">
+            <Ionicons name="alert-circle" size={48} color="#EF4444" />
+            <Text className="text-red-500 text-center mt-4 font-medium">{error}</Text>
+            <TouchableOpacity 
+              className="mt-4 bg-red-500 px-6 py-3 rounded-lg"
+              onPress={fetchMedicines}
+            >
+              <Text className="text-white font-semibold">Réessayer</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       ) : (
         <FlatList
@@ -539,70 +675,81 @@ export default function InventoryDashboard() {
             />
           }
           ListEmptyComponent={
-            <View className="flex-1 justify-center items-center mt-10">
-              <Ionicons name="medical" size={48} color="#9CA3AF" />
-              <Text className="text-gray-500 mt-2 text-lg">Aucun médicament trouvé</Text>
-              <Text className="text-gray-400 mt-1 text-center px-4">
-                Ajoutez des médicaments à votre inventaire ou modifiez vos filtres
-              </Text>
+            <View className="flex-1 justify-center items-center mt-20">
+              <View className="bg-white p-8 rounded-xl items-center mx-4 shadow-sm border border-gray-100">
+                <Ionicons name="medical" size={48} color="#9CA3AF" />
+                <Text className="text-gray-500 mt-4 text-lg font-medium">Aucun médicament trouvé</Text>
+                <Text className="text-gray-400 mt-2 text-center px-4 leading-6">
+                  Ajoutez des médicaments à votre inventaire ou modifiez vos filtres
+                </Text>
+              </View>
             </View>
           }
           contentContainerStyle={{ paddingBottom: 20 }}
+          showsVerticalScrollIndicator={false}
         />
       )}
 
       {/* Add/Edit Product Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5">
-            <Text className="text-lg font-bold mb-4">
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <Text className="text-xl font-bold mb-6 text-gray-800">
               {editingProduct ? 'Modifier un médicament' : 'Ajouter un médicament'}
             </Text>
 
-            <TextInput
-              placeholder="Nom du médicament *"
-              value={form.name}
-              onChangeText={(text) => setForm({...form, name: text})}
-              className="border border-gray-300 p-3 mb-3 rounded-lg"
-            />
-            <TextInput
-              placeholder="Description *"
-              value={form.description}
-              onChangeText={(text) => setForm({...form, description: text})}
-              className="border border-gray-300 p-3 mb-3 rounded-lg"
-              multiline
-              numberOfLines={3}
-            />
-            <TextInput
-              placeholder="Prix ($) *"
-              value={form.price}
-              onChangeText={(text) => setForm({...form, price: text})}
-              keyboardType="decimal-pad"
-              className="border border-gray-300 p-3 mb-3 rounded-lg"
-            />
-            <TextInput
-              placeholder="Quantité *"
-              value={form.quantity}
-              onChangeText={(text) => setForm({...form, quantity: text})}
-              keyboardType="numeric"
-              className="border border-gray-300 p-3 mb-3 rounded-lg"
-            />
-            <TextInput
-              placeholder="Catégorie"
-              value={form.category}
-              onChangeText={(text) => setForm({...form, category: text})}
-              className="border border-gray-300 p-3 mb-4 rounded-lg"
-            />
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <TextInput
+                placeholder="Nom du médicament *"
+                value={form.name}
+                onChangeText={(text) => setForm({...form, name: text})}
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Description *"
+                value={form.description}
+                onChangeText={(text) => setForm({...form, description: text})}
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Prix ($) *"
+                value={form.price}
+                onChangeText={(text) => setForm({...form, price: text})}
+                keyboardType="decimal-pad"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Quantité *"
+                value={form.quantity}
+                onChangeText={(text) => setForm({...form, quantity: text})}
+                keyboardType="numeric"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+              <TextInput
+                placeholder="Catégorie"
+                value={form.category}
+                onChangeText={(text) => setForm({...form, category: text})}
+                className="border border-gray-300 p-4 mb-6 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+            </ScrollView>
 
             <View className="flex-row justify-between mt-4">
               <TouchableOpacity
-                className="bg-gray-200 px-6 py-3 rounded-lg flex-1 mr-2"
+                className="bg-gray-100 px-6 py-4 rounded-lg flex-1 mr-3 border border-gray-200"
                 onPress={() => setModalVisible(false)}
               >
-                <Text className="text-center font-semibold">Annuler</Text>
+                <Text className="text-center font-semibold text-gray-700">Annuler</Text>
               </TouchableOpacity>
               <TouchableOpacity
-                className="bg-blue-500 px-6 py-3 rounded-lg flex-1 ml-2"
+                className="bg-blue-500 px-6 py-4 rounded-lg flex-1 ml-3 shadow-sm"
                 onPress={handleSave}
               >
                 <Text className="text-white text-center font-semibold">Enregistrer</Text>
@@ -612,63 +759,167 @@ export default function InventoryDashboard() {
         </View>
       </Modal>
 
+      {/* Stock Log Modal */}
+      <Modal visible={stockLogModalVisible} animationType="slide" transparent>
+        <View className="flex-1 justify-center items-center bg-black/50">
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <View className="flex-row items-center mb-6">
+              <View className="w-10 h-10 bg-orange-100 rounded-full items-center justify-center mr-3">
+                <Ionicons name="receipt" size={20} color="#F97316" />
+              </View>
+              <Text className="text-xl font-bold text-gray-800">Enregistrer une vente</Text>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false}>
+              <View className="mb-4">
+                <Text className="text-sm text-gray-600 mb-2 font-medium">Sélectionner un médicament *</Text>
+                <View className="border border-gray-300 rounded-lg bg-gray-50">
+                  <Picker
+                    selectedValue={stockLogForm.medicineId}
+                    onValueChange={(itemValue, itemIndex) => {
+                      const selectedMed = medicines.find(med => med.$id === itemValue);
+                      setStockLogForm({
+                        ...stockLogForm,
+                        medicineId: itemValue,
+                        medicineName: selectedMed?.name || ''
+                      });
+                    }}
+                    style={{ backgroundColor: 'transparent' }}
+                  >
+                    <Picker.Item label="-- Sélectionner un médicament --" value="" />
+                    {medicines.map((medicine) => (
+                      <Picker.Item 
+                        key={medicine.$id} 
+                        label={`${medicine.name} (Stock: ${medicine.quantity || 0})`} 
+                        value={medicine.$id} 
+                      />
+                    ))}
+                  </Picker>
+                </View>
+              </View>
+
+              <TextInput
+                placeholder="Quantité vendue *"
+                value={stockLogForm.quantitySold}
+                onChangeText={(text) => setStockLogForm({...stockLogForm, quantitySold: text})}
+                keyboardType="numeric"
+                className="border border-gray-300 p-4 mb-4 rounded-lg bg-gray-50 font-medium"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              <TextInput
+                placeholder="Notes (optionnel)"
+                value={stockLogForm.notes}
+                onChangeText={(text) => setStockLogForm({...stockLogForm, notes: text})}
+                className="border border-gray-300 p-4 mb-6 rounded-lg bg-gray-50 font-medium"
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+                placeholderTextColor="#9CA3AF"
+              />
+
+              {stockLogForm.medicineId && (
+                <View className="bg-blue-50 p-4 rounded-lg mb-4 border border-blue-200">
+                  <Text className="text-blue-700 font-medium mb-1">Informations du médicament:</Text>
+                  <Text className="text-blue-600 text-sm">
+                    Nom: {stockLogForm.medicineName}
+                  </Text>
+                  <Text className="text-blue-600 text-sm">
+                    Stock actuel: {medicines.find(med => med.$id === stockLogForm.medicineId)?.quantity || 0} unités
+                  </Text>
+                  {stockLogForm.quantitySold && !isNaN(parseInt(stockLogForm.quantitySold)) && (
+                    <Text className="text-blue-600 text-sm">
+                      Stock après vente: {(medicines.find(med => med.$id === stockLogForm.medicineId)?.quantity || 0) - parseInt(stockLogForm.quantitySold)} unités
+                    </Text>
+                  )}
+                </View>
+              )}
+            </ScrollView>
+
+            <View className="flex-row justify-between mt-4">
+              <TouchableOpacity
+                className="bg-gray-100 px-6 py-4 rounded-lg flex-1 mr-3 border border-gray-200"
+                onPress={() => setStockLogModalVisible(false)}
+              >
+                <Text className="text-center font-semibold text-gray-700">Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                className="bg-orange-500 px-6 py-4 rounded-lg flex-1 ml-3 shadow-sm"
+                onPress={handleStockLog}
+              >
+                <Text className="text-white text-center font-semibold">Enregistrer la vente</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       {/* Notifications Modal */}
       <Modal visible={showNotifications} animationType="slide" transparent>
         <View className="flex-1 justify-center items-center bg-black/50">
-          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5">
-            <View className="flex-row justify-between items-center mb-4">
-              <Text className="text-lg font-bold">Notifications de Stock</Text>
-              <TouchableOpacity onPress={() => setShowNotifications(false)}>
-                <Ionicons name="close" size={24} color="#6B7280" />
+          <View className="bg-white p-6 rounded-xl w-11/12 max-h-4/5 shadow-xl">
+            <View className="flex-row justify-between items-center mb-6">
+              <View className="flex-row items-center">
+                <View className="w-10 h-10 bg-yellow-100 rounded-full items-center justify-center mr-3">
+                  <Ionicons name="notifications" size={20} color="#F59E0B" />
+                </View>
+                <Text className="text-xl font-bold text-gray-800">Notifications de Stock</Text>
+              </View>
+              <TouchableOpacity 
+                className="p-2 bg-gray-100 rounded-full"
+                onPress={() => setShowNotifications(false)}
+              >
+                <Ionicons name="close" size={20} color="#6B7280" />
               </TouchableOpacity>
             </View>
 
             {getLowStockMedicines().length === 0 ? (
-              <View className="items-center py-8">
-                <Ionicons name="checkmark-circle" size={48} color="#10B981" />
-                <Text className="text-gray-500 mt-4 text-center">
+              <View className="items-center py-12">
+                <View className="w-16 h-16 bg-green-100 rounded-full items-center justify-center mb-4">
+                  <Ionicons name="checkmark-circle" size={32} color="#10B981" />
+                </View>
+                <Text className="text-gray-800 text-lg font-medium mb-2">
                   Aucune alerte de stock !
                 </Text>
-                <Text className="text-gray-400 mt-2 text-center">
+                <Text className="text-gray-500 text-center leading-6">
                   Tous vos médicaments ont un stock suffisant
                 </Text>
               </View>
             ) : (
-              <FlatList
-                data={getLowStockMedicines()}
-                keyExtractor={(item) => item.$id}
-                renderItem={({ item }) => (
-                  <View className="bg-red-50 p-4 rounded-lg mb-3 border-l-4 border-red-500">
-                    <View className="flex-row items-center mb-2">
-                      <Ionicons name="warning" size={20} color="#EF4444" />
-                      <Text className="font-bold text-red-700 ml-2">Stock Faible</Text>
+              <ScrollView showsVerticalScrollIndicator={false}>
+                {getLowStockMedicines().map((item) => (
+                  <View key={item.$id} className="bg-red-50 p-4 rounded-xl mb-4 border-l-4 border-red-500">
+                    <View className="flex-row items-center mb-3">
+                      <View className="w-8 h-8 bg-red-100 rounded-full items-center justify-center mr-3">
+                        <Ionicons name="warning" size={16} color="#EF4444" />
+                      </View>
+                      <Text className="font-bold text-red-700 flex-1">Stock Faible</Text>
                     </View>
-                    <Text className="font-semibold text-gray-800">{item.name}</Text>
-                    <Text className="text-gray-600 text-sm">
+                    <Text className="font-semibold text-gray-800 mb-1">{item.name}</Text>
+                    <Text className="text-gray-600 text-sm mb-2">
                       Quantité restante: {item.quantity} unité(s)
                     </Text>
                     {item.category && (
-                      <Text className="text-gray-500 text-xs mt-1">
+                      <Text className="text-gray-500 text-xs mb-3">
                         Catégorie: {item.category}
                       </Text>
                     )}
                     <TouchableOpacity
-                      className="mt-2 bg-red-500 px-3 py-1 rounded-full self-start"
+                      className="bg-red-500 px-4 py-2 rounded-lg self-start shadow-sm"
                       onPress={() => {
                         setShowNotifications(false);
                         openEditModal(item);
                       }}
                     >
-                      <Text className="text-white text-xs">Réapprovisionner</Text>
+                      <Text className="text-white text-sm font-medium">Réapprovisionner</Text>
                     </TouchableOpacity>
                   </View>
-                )}
-                showsVerticalScrollIndicator={false}
-              />
+                ))}
+              </ScrollView>
             )}
 
             <TouchableOpacity
-              className="bg-blue-500 px-6 py-3 rounded-lg mt-4"
+              className="bg-blue-500 px-6 py-4 rounded-lg mt-4 shadow-sm"
               onPress={() => setShowNotifications(false)}
             >
               <Text className="text-white text-center font-semibold">Fermer</Text>
