@@ -16,6 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, TRANSACTIONS_COLLECTION_ID } from '@/services/appwrite';
 import { ID } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
@@ -23,6 +24,7 @@ import { Picker } from '@react-native-picker/picker';
 const PRODUCT_TYPES = ['Médicament', 'Équipement', 'Supplément', 'Autre'];
 
 export default function InventoryDashboard() {
+  const router = useRouter();
   const [products, setProducts] = useState([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingProduct, setEditingProduct] = useState(null);
@@ -32,6 +34,35 @@ export default function InventoryDashboard() {
   const [reduceStockModal, setReduceStockModal] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState('');
   const [quantityToReduce, setQuantityToReduce] = useState('');
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  // Logout function
+  const handleLogout = async () => {
+    Alert.alert(
+      'Déconnexion',
+      'Êtes-vous sûr de vouloir vous déconnecter ?',
+      [
+        { text: 'Annuler', style: 'cancel' },
+        { 
+          text: 'Déconnecter', 
+          style: 'destructive', 
+          onPress: async () => {
+            try {
+              setIsLoggingOut(true);
+              await account.deleteSession('current'); // Terminate current session
+              showToast('Déconnecté avec succès');
+              router.replace('/(auth)/login'); // Navigate back to login
+            } catch (error) {
+              console.error('Logout error:', error);
+              Alert.alert('Erreur', 'Échec de la déconnexion : ' + error.message);
+            } finally {
+              setIsLoggingOut(false);
+            }
+          }
+        },
+      ]
+    );
+  };
 
   const logTransaction = async (productId, productName, type, quantity, oldStock, newStock) => {
     try {
@@ -213,43 +244,58 @@ export default function InventoryDashboard() {
       <View className="flex-row justify-between items-center p-4 bg-white shadow">
         <Text className="text-xl font-bold">Inventory Dashboard</Text>
 
-        <View className="relative z-20">
+        <View className="flex-row items-center space-x-2">
+          {/* Logout Button */}
           <TouchableOpacity
-            className="bg-blue-500 px-4 py-2 rounded-md flex-row items-center"
-            onPress={() => setExpandedMenu(!expandedMenu)}
+            className="bg-red-500 px-3 py-2 rounded-md flex-row items-center mr-2"
+            onPress={handleLogout}
+            disabled={isLoggingOut}
           >
-            <Text className="text-white font-semibold mr-2">Actions</Text>
-            <Ionicons name={expandedMenu ? 'chevron-up' : 'chevron-down'} size={16} color="white" />
+            <Ionicons name="log-out-outline" size={16} color="white" />
+            <Text className="text-white font-semibold ml-1">
+              {isLoggingOut ? 'Déconnexion...' : 'Déconnecter'}
+            </Text>
           </TouchableOpacity>
 
-          {expandedMenu && (
-            <View
-              className="absolute top-12 right-0 bg-white border border-gray-200 rounded-lg shadow-lg w-48"
-              style={{ zIndex: 100 }}
+          {/* Actions Menu */}
+          <View className="relative z-20">
+            <TouchableOpacity
+              className="bg-blue-500 px-4 py-2 rounded-md flex-row items-center"
+              onPress={() => setExpandedMenu(!expandedMenu)}
             >
-              <TouchableOpacity
-                className="p-3 border-b border-gray-100 flex-row items-center"
-                onPress={() => {
-                  openModal();
-                  setExpandedMenu(false);
-                }}
-              >
-                <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
-                <Text className="ml-2 text-gray-700">Ajouter un produit</Text>
-              </TouchableOpacity>
+              <Text className="text-white font-semibold mr-2">Actions</Text>
+              <Ionicons name={expandedMenu ? 'chevron-up' : 'chevron-down'} size={16} color="white" />
+            </TouchableOpacity>
 
-              <TouchableOpacity
-                className="p-3 flex-row items-center"
-                onPress={() => {
-                  setReduceStockModal(true);
-                  setExpandedMenu(false);
-                }}
+            {expandedMenu && (
+              <View
+                className="absolute top-12 right-0 bg-white border border-gray-200 rounded-lg shadow-lg w-48"
+                style={{ zIndex: 100 }}
               >
-                <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
-                <Text className="ml-2 text-gray-700">Réduire le stock</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+                <TouchableOpacity
+                  className="p-3 border-b border-gray-100 flex-row items-center"
+                  onPress={() => {
+                    openModal();
+                    setExpandedMenu(false);
+                  }}
+                >
+                  <Ionicons name="add-circle-outline" size={20} color="#3B82F6" />
+                  <Text className="ml-2 text-gray-700">Ajouter un produit</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  className="p-3 flex-row items-center"
+                  onPress={() => {
+                    setReduceStockModal(true);
+                    setExpandedMenu(false);
+                  }}
+                >
+                  <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
+                  <Text className="ml-2 text-gray-700">Réduire le stock</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
