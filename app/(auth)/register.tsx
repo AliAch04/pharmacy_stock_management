@@ -13,7 +13,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { account, ID } from '../../lib/appwrite';
+import { account, ID, databases, databaseId, usersCollectionId } from '../../lib/appwrite';
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -40,18 +40,43 @@ export default function RegisterPage() {
 
     try {
       setLoading(true);
-      // Create new user account
-      await account.create(ID.unique(), email, password, name);
 
-      // Log user in immediately after registration
-      await account.createEmailSession(email, password);
+      // 1. First, delete any existing session to avoid conflicts
+      try {
+        await account.deleteSession('current');
+      } catch (sessionError) {
+        // If no session exists, this will throw an error, which is fine
+        console.log('No existing session to delete');
+      }
+
+      // 2. Create account
+      const user = await account.create(ID.unique(), email, password, name);
+      if (!user) throw new Error('Failed to create account');
+
+      // 3. Create document in users collection
+      await databases.createDocument(
+        databaseId,
+        usersCollectionId,
+        ID.unique(),
+        {
+          userId: user.$id,
+          name,
+          email
+        }
+      );
+
+      // 4. Create new session after account creation
+      await account.createEmailPasswordSession(email, password);
 
       setLoading(false);
       Alert.alert('Success', 'Account created successfully!');
-      router.replace('(tabs)/index');
+
+      // 5. Redirect to home
+      router.replace('/(tabs)');
     } catch (error: any) {
       setLoading(false);
-      Alert.alert('Registration failed', error.message || 'An error occurred');
+      console.error('Registration failed:', error);
+      Alert.alert('Registration Error', error.message || 'Something went wrong');
     }
   };
 
