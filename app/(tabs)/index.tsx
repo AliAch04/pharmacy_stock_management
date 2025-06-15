@@ -17,11 +17,24 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, TRANSACTIONS_COLLECTION_ID } from '@/services/appwrite';
+import { client, account, databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, } from '@/services/appwrite';
+import { getMedicines, getFilePreview } from '../../services/medicines';
 import { ID } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
+import ActionsMenu from '@/constants/ActionsMenu';
+
 
 const PRODUCT_TYPES = ['Médicament', 'Équipement', 'Supplément', 'Autre'];
+
+interface Medicine {
+  $id: string;
+  name: string;
+  description: string;
+  price: number;
+  quantity: number;
+  imageId?: string;
+  category: string;
+}
 
 export default function InventoryDashboard() {
   const router = useRouter();
@@ -35,6 +48,10 @@ export default function InventoryDashboard() {
   const [selectedProduct, setSelectedProduct] = useState('');
   const [quantityToReduce, setQuantityToReduce] = useState('');
   const [isLoggingOut, setIsLoggingOut] = useState(false);
+
+  const [medicines, setMedicines] = useState<Medicine[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
   // Logout function
   const handleLogout = async () => {
@@ -88,6 +105,27 @@ export default function InventoryDashboard() {
       console.error('Erreur de récupération :', error);
     }
   };
+
+  useEffect(() => {
+    const fetchMedicines = async () => {
+      try {
+        setLoading(true);
+        const response = await getMedicines({
+          limit: 20,
+          sortField: 'name',
+          sortOrder: 'ASC'
+        });
+        setMedicines(response.documents);
+      } catch (err) {
+        console.error('Failed to fetch medicines:', err);
+        setError('Failed to load medicines. Please try again.');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchMedicines();
+  }, []);
 
   useEffect(() => {
     fetchProducts();
@@ -242,20 +280,9 @@ export default function InventoryDashboard() {
     <SafeAreaView className="flex-1 bg-blue-50">
       <StatusBar style="dark" />
       <View className="flex-row justify-between items-center p-4 bg-white shadow">
-        <Text className="text-xl font-bold">Inventory Dashboard</Text>
+        <Text className="text-xl font-bold">Tableau de Bord</Text>
 
         <View className="flex-row items-center space-x-2">
-          {/* Logout Button */}
-          <TouchableOpacity
-            className="bg-red-500 px-3 py-2 rounded-md flex-row items-center mr-2"
-            onPress={handleLogout}
-            disabled={isLoggingOut}
-          >
-            <Ionicons name="log-out-outline" size={16} color="white" />
-            <Text className="text-white font-semibold ml-1">
-              {isLoggingOut ? 'Déconnexion...' : 'Déconnecter'}
-            </Text>
-          </TouchableOpacity>
 
           {/* Actions Menu */}
           <View className="relative z-20">
@@ -293,6 +320,18 @@ export default function InventoryDashboard() {
                   <Ionicons name="remove-circle-outline" size={20} color="#EF4444" />
                   <Text className="ml-2 text-gray-700">Réduire le stock</Text>
                 </TouchableOpacity>
+
+                {/* Logout Button */}
+              <TouchableOpacity
+                className="bg-red-500 px-3 py-2 rounded-md flex-row items-center mr-2"
+                onPress={handleLogout}
+                disabled={isLoggingOut}
+              >
+                <Ionicons name="log-out-outline" size={16} color="white" />
+                <Text className="text-white font-semibold ml-1">
+                  {isLoggingOut ? 'Déconnexion...' : 'Déconnecter'}
+                </Text>
+              </TouchableOpacity>
               </View>
             )}
           </View>
