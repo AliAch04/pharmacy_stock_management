@@ -70,7 +70,6 @@ export default function RegisterPage() {
       await account.createEmailPasswordSession(email, password);
 
       setLoading(false);
-      Alert.alert('Success', 'Account created successfully!');
       router.replace('/(tabs)');
     } catch (error: any) {
       setLoading(false);

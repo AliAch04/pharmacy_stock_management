@@ -36,7 +36,7 @@ export default function LoginPage() {
       if (!currentUser) throw new Error('Failed to verify login');
 
       setLoading(false);
-      Alert.alert('Success', 'Logged in successfully!');
+      
       
       // 4. Redirect to home - using push instead of replace to allow back navigation if needed
       router.push('/(tabs)');
