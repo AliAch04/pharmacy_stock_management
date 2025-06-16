@@ -69,7 +69,6 @@ export default function RegisterPage() {
       await account.createEmailPasswordSession(email, password);
 
       setLoading(false);
-      Alert.alert('Success', 'Account created successfully!');
 
       // 5. Redirect to home
       router.replace('/(tabs)');

@@ -433,113 +433,127 @@ export default function InventoryDashboard() {
   );
 
   return (
-    <SafeAreaView className="flex-1 bg-gray-50">
+    <SafeAreaView className="flex-1 bg-gray-50" style={{ position: 'relative' }}>
       <StatusBar style="dark" />
       
       {/* Header */}
-      <View className="flex-row justify-between items-center p-4 bg-white shadow-sm border-b border-gray-100">
+      <View className="flex-row justify-between items-center p-4 bg-white shadow-sm border-b border-gray-100" style={{ zIndex: 1000 }}>         
         <Text className="text-xl font-bold text-gray-800">Inventaire des Médicaments</Text>
         
-        <View className="flex-row items-center space-x-3">
-          {/* Notification Bell */}
-          <TouchableOpacity 
-            className="relative p-3 bg-yellow-50 rounded-full border border-yellow-200"
-            onPress={handleNotificationPress}
-          >
-            <Ionicons name="notifications" size={20} color="#F59E0B" />
-            {getNotificationCount() > 0 && (
-              <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center">
-                <Text className="text-white text-xs font-bold">
-                  {getNotificationCount() > 9 ? '9+' : getNotificationCount()}
-                </Text>
-              </View>
-            )}
-          </TouchableOpacity>
+        <View className="flex-row items-center">
+  {/* Notification Bell */}
+  <TouchableOpacity 
+    className="relative p-3 bg-yellow-50 rounded-full border border-yellow-200 mr-3"
+    onPress={handleNotificationPress}
+  >
+    <Ionicons name="notifications" size={20} color="#F59E0B" />
+    {getNotificationCount() > 0 && (
+      <View className="absolute -top-1 -right-1 bg-red-500 rounded-full w-5 h-5 justify-center items-center">
+        <Text className="text-white text-xs font-bold">
+          {getNotificationCount() > 9 ? '9+' : getNotificationCount()}
+        </Text>
+      </View>
+    )}
+  </TouchableOpacity>
 
-          {/* Dropdown Menu */}
-          <View className="relative">
-            <TouchableOpacity 
-              className="p-3 bg-gray-50 rounded-full border border-gray-200"
-              onPress={() => setShowDropdown(!showDropdown)}
-            >
-              <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
-            </TouchableOpacity>
+  {/* Dropdown Menu */}
+  <View className="relative" style={{ zIndex: 9999 }}>
+    <TouchableOpacity 
+      className="p-3 bg-gray-50 rounded-full border border-gray-200"
+      onPress={() => setShowDropdown(!showDropdown)}
+    >
+      <Ionicons name="ellipsis-vertical" size={20} color="#6B7280" />
+    </TouchableOpacity>
+  </View>
+</View>
 
-            {showDropdown && (
-              <>
-                {/* Overlay to close dropdown */}
-                <TouchableOpacity 
-                  className="absolute inset-0 w-screen h-screen -left-96 -top-96"
-                  onPress={() => setShowDropdown(false)}
-                  activeOpacity={1}
-                  style={{ zIndex: 999 }}
-                />
-                
-                {/* Dropdown content */}
-                <View 
-                  className="absolute right-0 top-12 bg-white rounded-xl shadow-lg border border-gray-200 w-56"
-                  style={{ zIndex: 1000, elevation: 10 }}
-                >
-                  <TouchableOpacity 
-                    className="flex-row items-center p-4 border-b border-gray-100"
-                    onPress={() => {
-                      setShowFilters(!showFilters);
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <View className="w-8 h-8 bg-blue-50 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="filter" size={16} color="#3B82F6" />
-                    </View>
-                    <Text className="text-gray-700 font-medium">Filtres</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    className="flex-row items-center p-4 border-b border-gray-100"
-                    onPress={() => {
-                      openAddModal();
-                      setShowDropdown(false);
-                    }}
-                  >
-                    <View className="w-8 h-8 bg-green-50 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="add" size={16} color="#10B981" />
-                    </View>
-                    <Text className="text-gray-700 font-medium">Ajouter médicament</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity 
-                    className="flex-row items-center p-4 border-b border-gray-100"
-                    onPress={openStockLogModal}
-                  >
-                    <View className="w-8 h-8 bg-orange-50 rounded-full items-center justify-center mr-3">
-                      <Ionicons name="receipt" size={16} color="#F97316" />
-                    </View>
-                    <Text className="text-gray-700 font-medium">Enregistrer une vente</Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    className="flex-row items-center p-4"
-                    onPress={() => {
-                      handleLogout();
-                      setShowDropdown(false);
-                    }}
-                    disabled={isLoggingOut}
-                  >
-                    <View className="w-8 h-8 bg-red-50 rounded-full items-center justify-center mr-3">
-                      <Ionicons 
-                        name={isLoggingOut ? "hourglass" : "log-out"} 
-                        size={16} 
-                        color="#EF4444" 
-                      />
-                    </View>
-                    <Text className="text-gray-700 font-medium">
-                      {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </>
-            )}
-          </View>
+{/* Dropdown content déplacé à l'extérieur et avec un z-index plus élevé */}
+{showDropdown && (
+  <>
+    {/* Overlay to close dropdown */}
+    <TouchableOpacity 
+      className="absolute inset-0 w-full h-full"
+      onPress={() => setShowDropdown(false)}
+      activeOpacity={1}
+      style={{ zIndex: 9998, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
+    />
+    
+    {/* Dropdown content avec position absolue par rapport à l'écran */}
+    <View 
+      className="absolute bg-white rounded-xl shadow-lg border border-gray-200 w-56"
+      style={{ 
+        zIndex: 9999, 
+        elevation: 20,
+        position: 'absolute',
+        top: 70, // Ajustez selon la hauteur de votre header
+        right: 16, // Marge depuis le bord droit
+        shadowColor: '#000',
+        shadowOffset: {
+          width: 0,
+          height: 4,
+        },
+        shadowOpacity: 0.3,
+        shadowRadius: 6,
+      }}
+    >
+      <TouchableOpacity 
+        className="flex-row items-center p-4 border-b border-gray-100"
+        onPress={() => {
+          setShowFilters(!showFilters);
+          setShowDropdown(false);
+        }}
+      >
+        <View className="w-8 h-8 bg-blue-50 rounded-full items-center justify-center mr-3">
+          <Ionicons name="filter" size={16} color="#3B82F6" />
         </View>
+        <Text className="text-gray-700 font-medium">Filtres</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        className="flex-row items-center p-4 border-b border-gray-100"
+        onPress={() => {
+          openAddModal();
+          setShowDropdown(false);
+        }}
+      >
+        <View className="w-8 h-8 bg-green-50 rounded-full items-center justify-center mr-3">
+          <Ionicons name="add" size={16} color="#10B981" />
+        </View>
+        <Text className="text-gray-700 font-medium">Ajouter médicament</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        className="flex-row items-center p-4 border-b border-gray-100"
+        onPress={openStockLogModal}
+      >
+        <View className="w-8 h-8 bg-orange-50 rounded-full items-center justify-center mr-3">
+          <Ionicons name="receipt" size={16} color="#F97316" />
+        </View>
+        <Text className="text-gray-700 font-medium">Enregistrer une vente</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        className="flex-row items-center p-4"
+        onPress={() => {
+          handleLogout();
+          setShowDropdown(false);
+        }}
+        disabled={isLoggingOut}
+      >
+        <View className="w-8 h-8 bg-red-50 rounded-full items-center justify-center mr-3">
+          <Ionicons 
+            name={isLoggingOut ? "hourglass" : "log-out"} 
+            size={16} 
+            color="#EF4444" 
+          />
+        </View>
+        <Text className="text-gray-700 font-medium">
+          {isLoggingOut ? 'Déconnexion...' : 'Déconnexion'}
+        </Text>
+      </TouchableOpacity>
+    </View>
+  </>
+)}
       </View>
 
       {/* Filter Panel */}
