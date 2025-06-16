@@ -5,23 +5,12 @@ export const getMedicineImage = (fileId: string | undefined) => {
   
   try {
     return {
-      uri: storage.getFilePreview(
+      uri: storage.getFileView(
         BUCKET_ID,
-        fileId,
-        300, // width
-        300, // height
-        undefined, // gravity
-        undefined, // quality
-        undefined, // borderWidth
-        undefined, // borderColor
-        undefined, // borderRadius
-        undefined, // opacity
-        undefined, // rotation
-        undefined, // background
-        undefined, // output
+        fileId
       ),
       headers: {
-        'X-Appwrite-Project': '68424153002403801f6b'
+        'X-Appwrite-Project': '68424153002403801f6b' // Votre PROJECT_ID
       }
     };
   } catch (error) {

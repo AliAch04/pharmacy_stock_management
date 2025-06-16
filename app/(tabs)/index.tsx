@@ -565,17 +565,17 @@ export default function InventoryDashboard() {
       <View className="flex-row">
         {/* Image preview */}
         {getMedicineImage(item.image) ? (
-  <Image 
-    source={getMedicineImage(item.image)}
-    className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
-    resizeMode="cover"
-    onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
-  />
-) : (
-  <View className="w-20 h-20 rounded-xl mr-4 bg-gray-100 items-center justify-center">
-    <Ionicons name="image-outline" size={24} color="#9CA3AF" />
-  </View>
-)}
+          <Image 
+            source={getMedicineImage(item.image)}
+            className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
+            resizeMode="cover"
+            onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
+          />
+        ) : (
+          <View className="w-20 h-20 rounded-xl mr-4 bg-gray-100 items-center justify-center">
+            <Ionicons name="image-outline" size={24} color="#9CA3AF" />
+          </View>
+        )}
         
         <View className="flex-1">
           <Text className="font-bold text-lg text-gray-800 mb-1">{item.name || 'Nom non défini'}</Text>
