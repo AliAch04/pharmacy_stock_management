@@ -3,7 +3,7 @@ import { View, Text, TextInput, TouchableOpacity, StyleSheet, SafeAreaView, Stat
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { account } from '../../lib/appwrite';
+import { account, ID } from '../../lib/appwrite';
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
@@ -19,12 +19,41 @@ export default function LoginPage() {
 
     try {
       setLoading(true);
-      await account.createEmailSession(email, password);
+      
+      // 1. First, delete any existing session to avoid conflicts
+      try {
+        await account.deleteSession('current');
+      } catch (sessionError) {
+        // If no session exists, this will throw an error, which is fine
+        console.log('No existing session to delete');
+      }
+
+      // 2. Create new session
+      await account.createEmailPasswordSession(email, password);
+      
+      // 3. Get current user to verify login was successful
+      const currentUser = await account.get();
+      if (!currentUser) throw new Error('Failed to verify login');
+
       setLoading(false);
-      router.replace('(tabs)/index');
+      
+      
+      // 4. Redirect to home - using push instead of replace to allow back navigation if needed
+      router.push('/(tabs)');
+      
     } catch (error: any) {
       setLoading(false);
-      Alert.alert('Login failed', error.message || 'An error occurred');
+      console.error('Login failed:', error);
+      
+      // More specific error messages
+      let errorMessage = 'An error occurred during login';
+      if (error.message.includes('Invalid credentials')) {
+        errorMessage = 'Invalid email or password';
+      } else if (error.message.includes('session')) {
+        errorMessage = 'Session error - please try again';
+      }
+      
+      Alert.alert('Login failed', errorMessage);
     }
   };
 
@@ -58,7 +87,11 @@ export default function LoginPage() {
             value={password}
           />
 
-          <TouchableOpacity style={styles.button} onPress={handleLogin} disabled={loading}>
+          <TouchableOpacity 
+            style={[styles.button, loading && styles.disabledButton]} 
+            onPress={handleLogin} 
+            disabled={loading}
+          >
             <Text style={styles.buttonText}>{loading ? 'Signing in...' : 'Sign In'}</Text>
           </TouchableOpacity>
 
@@ -109,6 +142,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     marginBottom: 20,
+  },
+  disabledButton: {
+    backgroundColor: 'rgba(255,255,255,0.5)',
   },
   buttonText: {
     color: '#667eea',

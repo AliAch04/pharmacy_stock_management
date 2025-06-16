@@ -13,14 +13,15 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { account, ID } from '../../lib/appwrite';
+import { account, ID, databases, databaseId, usersCollectionId } from '../../lib/appwrite';
 
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  const handleChange = (field: string, value: string) =>
+    setForm(prev => ({ ...prev, [field]: value }));
 
   const handleRegister = async () => {
     const { name, email, password, confirm } = form;
@@ -75,7 +76,8 @@ export default function RegisterPage() {
       router.replace('/(tabs)');
     } catch (error: any) {
       setLoading(false);
-      Alert.alert('Registration failed', error.message || 'An error occurred');
+      console.error('Registration failed:', error);
+      Alert.alert('Registration Error', error.message || 'Something went wrong');
     }
   };
 
@@ -125,7 +127,9 @@ export default function RegisterPage() {
           />
 
           <TouchableOpacity style={styles.button} onPress={handleRegister} disabled={loading}>
-            <Text style={styles.buttonText}>{loading ? 'Creating Account...' : 'Create Account'}</Text>
+            <Text style={styles.buttonText}>
+              {loading ? 'Creating Account...' : 'Create Account'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.push('/(auth)/login')}>

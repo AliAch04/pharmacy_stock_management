@@ -1,3 +1,4 @@
+//(services\medicines.js)
 import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, Query } from './appwrite';
 
 export const getMedicines = async ({
