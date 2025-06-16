@@ -280,66 +280,87 @@ export default function InventoryDashboard() {
     }
   };
 
-  const handleStockLog = async () => {
-    try {
-      const quantitySold = parseInt(stockLogForm.quantitySold);
-      
-      if (!stockLogForm.medicineId || !stockLogForm.medicineName || isNaN(quantitySold)) {
-        throw new Error('Veuillez sélectionner un médicament et entrer une quantité valide');
-      }
-
-      if (quantitySold <= 0) {
-        throw new Error('La quantité vendue doit être positive');
-      }
-
-      // Find the selected medicine
-      const selectedMedicine = medicines.find(med => med.$id === stockLogForm.medicineId);
-      if (!selectedMedicine) {
-        throw new Error('Médicament non trouvé');
-      }
-
-      if (selectedMedicine.quantity === null || selectedMedicine.quantity < quantitySold) {
-        throw new Error('Stock insuffisant pour cette vente');
-      }
-
-      const previousQuantity = selectedMedicine.quantity;
-      const newQuantity = previousQuantity - quantitySold;
-
-      // Update medicine quantity
-      await databases.updateDocument(
-        DATABASE_ID,
-        COLLECTION_ID,
-        stockLogForm.medicineId,
-        {
-          quantity: newQuantity,
-          status: getStockStatus(newQuantity)
-        }
-      );
-
-      // Create log entry
-      await databases.createDocument(
-        DATABASE_ID,
-        LOGS_COLLECTION_ID,
-        ID.unique(),
-        {
-          medicineId: stockLogForm.medicineId,
-          medicineName: stockLogForm.medicineName,
-          transactionType: 'sale',
-          quantityChanged: -quantitySold, // Negative because it's a sale
-          previousQuantity,
-          newQuantity,
-          timestamp: new Date().toISOString(),
-          notes: stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
-        }
-      );
-
-      showToast(`Vente enregistrée: ${quantitySold} unité(s) de ${stockLogForm.medicineName}`);
-      setStockLogModalVisible(false);
-      fetchMedicines(); // Refresh the list
-    } catch (error: any) {
-      Alert.alert('Erreur', error.message);
+ const handleStockLog = async () => {
+  try {
+    const quantitySold = parseInt(stockLogForm.quantitySold);
+    
+    if (!stockLogForm.medicineId || !stockLogForm.medicineName || isNaN(quantitySold)) {
+      throw new Error('Veuillez sélectionner un médicament et entrer une quantité valide');
     }
-  };
+
+    if (quantitySold <= 0) {
+      throw new Error('La quantité vendue doit être positive');
+    }
+
+    const selectedMedicine = medicines.find(med => med.$id === stockLogForm.medicineId);
+    if (!selectedMedicine) {
+      throw new Error('Médicament non trouvé');
+    }
+
+    if (selectedMedicine.quantity === null || selectedMedicine.quantity < quantitySold) {
+      throw new Error('Stock insuffisant pour cette vente');
+    }
+
+    const previousQuantity = selectedMedicine.quantity;
+    const newQuantity = previousQuantity - quantitySold;
+
+    // Update medicine quantity
+    await databases.updateDocument(
+      DATABASE_ID,
+      COLLECTION_ID,
+      stockLogForm.medicineId,
+      {
+        quantity: newQuantity,
+        status: getStockStatus(newQuantity)
+      }
+    );
+
+    // Différents formats de timestamp à essayer selon votre configuration Appwrite
+    const now = new Date();
+    
+    // Format 1: ISO String (recommandé)
+    const timestampISO = now.toISOString();
+    
+    // Format 2: Unix timestamp en secondes
+    const timestampUnix = Math.floor(now.getTime() / 1000);
+    
+    // Format 3: Format français lisible
+    const timestampFR = now.toLocaleDateString('fr-FR') + ' ' + now.toLocaleTimeString('fr-FR');
+    
+    // Format 4: Format personnalisé
+    const timestampCustom = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')} ${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`;
+
+    // Utilisez le format qui fonctionne avec votre base de données
+    const logData = {
+      medicineId: stockLogForm.medicineId,
+      medicineName: stockLogForm.medicineName,
+      transactionType: 'sale',
+      quantityChanged: -quantitySold,
+      previousQuantity: previousQuantity,
+      newQuantity: newQuantity,
+      timestamp: timestampISO, // Changez ici selon le format requis
+      // Alternatives à essayer :
+      // timestamp: timestampFR,
+      // timestamp: timestampCustom,
+      // timestamp: timestampUnix,
+      notes: stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
+    };
+
+    await databases.createDocument(
+      DATABASE_ID,
+      LOGS_COLLECTION_ID,
+      ID.unique(),
+      logData
+    );
+
+    showToast(`Vente enregistrée: ${quantitySold} unité(s) de ${stockLogForm.medicineName}`);
+    setStockLogModalVisible(false);
+    fetchMedicines();
+  } catch (error: any) {
+    console.error('Erreur complète:', error);
+    Alert.alert('Erreur', error.message);
+  }
+};
 
   const getStockStatus = (quantity: number | null): string => {
     if (quantity === null || quantity === undefined) return 'Quantité inconnue';
