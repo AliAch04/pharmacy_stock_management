@@ -26,7 +26,9 @@ import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 
-// Add this to your constants file
+import { getMedicineImage } from '@/services/images';
+
+
 const LOGS_COLLECTION_ID = 'logs'; // Replace with your actual logs collection ID
 
 interface Medicine {
@@ -98,6 +100,9 @@ export default function InventoryDashboard() {
   const [quantityFilter, setQuantityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
   const [showDropdown, setShowDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
+
+  const [imageError, setImageError] = useState(false);
+
 
   // Image picker function
   const pickImage = async () => {
@@ -559,20 +564,18 @@ export default function InventoryDashboard() {
     >
       <View className="flex-row">
         {/* Image preview */}
-        {item.image ? (
-          <Image 
-            source={{ uri: getImagePreview(item.image) }} 
-            className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
-            resizeMode="cover"
-            onError={(error) => {
-              console.error('Erreur chargement image:', error);
-            }}
-          />
-        ) : (
-          <View className="w-20 h-20 rounded-xl mr-4 bg-gray-100 items-center justify-center">
-            <Ionicons name="image-outline" size={24} color="#9CA3AF" />
-          </View>
-        )}
+        {getMedicineImage(item.image) ? (
+  <Image 
+    source={getMedicineImage(item.image)}
+    className="w-20 h-20 rounded-xl mr-4 bg-gray-100"
+    resizeMode="cover"
+    onError={(e) => console.error('Image load error:', e.nativeEvent.error)}
+  />
+) : (
+  <View className="w-20 h-20 rounded-xl mr-4 bg-gray-100 items-center justify-center">
+    <Ionicons name="image-outline" size={24} color="#9CA3AF" />
+  </View>
+)}
         
         <View className="flex-1">
           <Text className="font-bold text-lg text-gray-800 mb-1">{item.name || 'Nom non défini'}</Text>

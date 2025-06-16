@@ -45,8 +45,39 @@ export const getMedicines = async ({
 };
 
 // Get file preview URL
-export const getFilePreview = (fileId) => {
-  return storage.getFilePreview(BUCKET_ID, fileId);
+export const getFilePreview = (fileId: string) => {
+  try {
+    return storage.getFilePreview(
+      BUCKET_ID,
+      fileId,
+      300, // width
+      300, // height
+      undefined, // gravity
+      undefined, // quality
+      undefined, // borderWidth
+      undefined, // borderColor
+      undefined, // borderRadius
+      undefined, // opacity
+      undefined, // rotation
+      undefined, // background
+      undefined, // output
+    );
+  } catch (error) {
+    console.error('Error getting file preview:', error);
+    return null;
+  }
+};
+
+export const getFileDownload = (fileId: string) => {
+  try {
+    return storage.getFileDownload(
+      BUCKET_ID,
+      fileId
+    );
+  } catch (error) {
+    console.error('Error getting file download:', error);
+    return null;
+  }
 };
 
 // Upload medicine image
