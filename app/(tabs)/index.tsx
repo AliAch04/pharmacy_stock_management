@@ -558,7 +558,7 @@ export default function InventoryDashboard() {
 
   const renderMedicineItem = ({ item }: { item: Medicine }) => (
     <TouchableOpacity 
-      className="bg-white p-4 rounded-xl shadow-sm mb-4 mx-4 border border-gray-100"
+      className="bg-white p-4 rounded-xl shadow-sm mt-5 mx-4 border border-gray-100"
       onPress={() => openEditModal(item)}
       style={{ elevation: 2 }}
     >
@@ -933,171 +933,193 @@ export default function InventoryDashboard() {
                 tintColor="#3B82F6"
               />
             }
-            ListFooterComponent={
-              <TouchableOpacity
-                className="mx-4 mb-8 bg-blue-500 p-4 rounded-xl items-center"
-                onPress={openAddModal}
-              >
-                <Text className="text-white font-bold text-lg">
-                  Ajouter un nouveau médicament
-                </Text>
-              </TouchableOpacity>
-            }
+            // ListFooterComponent={
+            //   <TouchableOpacity
+            //     className="mx-4 mb-8 bg-blue-500 p-4 rounded-xl items-center"
+            //     onPress={openAddModal}
+            //   >
+            //     <Text className="text-white font-bold text-lg">
+            //       Ajouter un nouveau médicament
+            //     </Text>
+            //   </TouchableOpacity>
+            // }
           />
         )}
       </View>
 
+     
       {/* Add/Edit Medicine Modal */}
-      <Modal
-        animationType="slide"
-        transparent={false}
-        visible={modalVisible}
-        onRequestClose={() => setModalVisible(false)}
+<Modal
+  animationType="slide"
+  transparent={false}
+  visible={modalVisible}
+  onRequestClose={() => setModalVisible(false)}
+>
+  <ScrollView className="flex-1 bg-white px-6 py-4" keyboardShouldPersistTaps="handled">
+    {/* Header */}
+    <View className="flex-row justify-between items-center mb-8">
+      <Text className="text-2xl font-semibold text-gray-800">
+        {editingProduct ? 'Modifier médicament' : 'Ajouter médicament'}
+      </Text>
+      <TouchableOpacity onPress={() => setModalVisible(false)} className="p-1">
+        <Ionicons name="close" size={26} color="#6B7280" />
+      </TouchableOpacity>
+    </View>
+
+    {/* Image Upload */}
+    <View className="mb-8">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Image du médicament</Text>
+      <TouchableOpacity
+        className="w-full h-48 bg-gray-100 rounded-2xl border border-dashed border-gray-300 items-center justify-center overflow-hidden"
+        onPress={pickImage}
       >
-        <ScrollView className="flex-1 bg-white p-4" keyboardShouldPersistTaps="handled">
-          <View className="flex-row justify-between items-center mb-6">
-            <Text className="text-xl font-bold text-gray-800">
-              {editingProduct ? 'Modifier médicament' : 'Ajouter médicament'}
-            </Text>
-            <TouchableOpacity onPress={() => setModalVisible(false)}>
-              <Ionicons name="close" size={24} color="#6B7280" />
-            </TouchableOpacity>
+        {selectedImage ? (
+          <Image
+            source={{ uri: selectedImage.uri }}
+            className="w-full h-full rounded-2xl"
+            resizeMode="cover"
+          />
+        ) : editingProduct?.image ? (
+          <Image
+            source={{ uri: getImagePreview(editingProduct.image) }}
+            className="w-full h-full rounded-2xl"
+            resizeMode="cover"
+          />
+        ) : (
+          <View className="items-center">
+            <Ionicons name="image" size={48} color="#9CA3AF" />
+            <Text className="text-gray-500 mt-2">Ajouter une image</Text>
           </View>
-          
-          {/* Image Upload */}
-          <View className="mb-6">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Image du médicament</Text>
-            <TouchableOpacity 
-              className="w-full h-48 bg-gray-50 rounded-xl border border-dashed border-gray-300 items-center justify-center"
-              onPress={pickImage}
-            >
-              {selectedImage ? (
-                <Image
-                  source={{ uri: selectedImage.uri }}
-                  className="w-full h-full rounded-xl"
-                  resizeMode="cover"
-                />
-              ) : editingProduct?.image ? (
-                <Image
-                  source={{ uri: getImagePreview(editingProduct.image) }}
-                  className="w-full h-full rounded-xl"
-                  resizeMode="cover"
-                />
-              ) : (
-                <View className="items-center">
-                  <Ionicons name="image" size={48} color="#9CA3AF" />
-                  <Text className="text-gray-500 mt-2">Ajouter une image</Text>
-                </View>
-              )}
-            </TouchableOpacity>
-            {uploadingImage && (
-              <View className="mt-2 flex-row items-center">
-                <ActivityIndicator size="small" color="#3B82F6" />
-                <Text className="text-blue-500 ml-2">Upload en cours...</Text>
-              </View>
-            )}
-          </View>
-          
-          {/* Form Fields */}
-          <View className="mb-4">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Nom du médicament</Text>
-            <TextInput
-              className="bg-gray-50 p-4 rounded-lg border border-gray-200"
-              placeholder="Paracétamol 500mg"
-              value={form.name}
-              onChangeText={(text) => setForm({...form, name: text})}
-            />
-          </View>
-          
-          <View className="mb-4">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Description</Text>
-            <TextInput
-              className="bg-gray-50 p-4 rounded-lg border border-gray-200 h-24"
-              placeholder="Description du médicament..."
-              multiline
-              value={form.description}
-              onChangeText={(text) => setForm({...form, description: text})}
-            />
-          </View>
-          
-          <View className="mb-4">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire ($)</Text>
-            <TextInput
-              className="bg-gray-50 p-4 rounded-lg border border-gray-200"
-              placeholder="9.99"
-              keyboardType="decimal-pad"
-              value={form.price}
-              onChangeText={(text) => setForm({...form, price: text})}
-            />
-          </View>
-          
-          <View className="mb-4">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Quantité en stock</Text>
-            <TextInput
-              className="bg-gray-50 p-4 rounded-lg border border-gray-200"
-              placeholder="50"
-              keyboardType="number-pad"
-              value={form.quantity}
-              onChangeText={(text) => setForm({...form, quantity: text})}
-            />
-          </View>
-          
-          <View className="mb-6">
-            <Text className="text-sm text-gray-600 mb-2 font-medium">Catégorie</Text>
-            <TextInput
-              className="bg-gray-50 p-4 rounded-lg border border-gray-200"
-              placeholder="Antidouleur"
-              value={form.category}
-              onChangeText={(text) => setForm({...form, category: text})}
-            />
-          </View>
-          
-          <TouchableOpacity
-            className="bg-blue-500 p-4 rounded-xl items-center mb-4"
-            onPress={handleSave}
-            disabled={uploadingImage}
-          >
-            <Text className="text-white font-bold text-lg">
-              {editingProduct ? 'Mettre à jour' : 'Ajouter'}
-            </Text>
-          </TouchableOpacity>
-          
-          {editingProduct && (
-            <TouchableOpacity
-              className="bg-red-500 p-4 rounded-xl items-center"
-              onPress={async () => {
-                Alert.alert(
-                  'Supprimer',
-                  'Êtes-vous sûr de vouloir supprimer ce médicament ?',
-                  [
-                    { text: 'Annuler', style: 'cancel' },
-                    {
-                      text: 'Supprimer',
-                      style: 'destructive',
-                      onPress: async () => {
-                        try {
-                          await databases.deleteDocument(
-                            DATABASE_ID,
-                            COLLECTION_ID,
-                            editingProduct.$id
-                          );
-                          showToast('Médicament supprimé');
-                          fetchMedicines();
-                          setModalVisible(false);
-                        } catch (error) {
-                          Alert.alert('Erreur', 'Échec de la suppression');
-                        }
-                      }
+        )}
+      </TouchableOpacity>
+
+      {uploadingImage && (
+        <View className="flex-row items-center mt-2">
+          <ActivityIndicator size="small" color="#3B82F6" />
+          <Text className="ml-2 text-blue-500">Upload en cours...</Text>
+        </View>
+      )}
+    </View>
+
+    {/* Form Fields */}
+    <View className="mb-5">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Nom du médicament</Text>
+      <TextInput
+        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+        placeholder="Paracétamol 500mg"
+        value={form.name}
+        onChangeText={(text) => setForm({ ...form, name: text })}
+      />
+    </View>
+
+    <View className="mb-5">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Description</Text>
+      <TextInput
+        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 h-24 text-top"
+        placeholder="Description du médicament..."
+        value={form.description}
+        onChangeText={(text) => setForm({ ...form, description: text })}
+        multiline
+      />
+    </View>
+
+    <View className="mb-5">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire ($)</Text>
+      <TextInput
+        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+        placeholder="9.99"
+        value={form.price}
+        onChangeText={(text) => setForm({ ...form, price: text })}
+        keyboardType="decimal-pad"
+      />
+    </View>
+
+    <View className="mb-5">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Quantité en stock</Text>
+      <TextInput
+        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+        placeholder="50"
+        value={form.quantity}
+        onChangeText={(text) => setForm({ ...form, quantity: text })}
+        keyboardType="number-pad"
+      />
+    </View>
+
+    {/* Catégorie - Nouveau Picker */}
+    <View className="mb-5">
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Catégorie</Text>
+      <View className="bg-gray-50 rounded-xl border border-gray-200">
+        <Picker
+          selectedValue={form.category}
+          onValueChange={(itemValue) => setForm({ ...form, category: itemValue })}
+        >
+          <Picker.Item label="Sélectionner une catégorie" value="" />
+          <Picker.Item label="Antidouleur" value="Antidouleur" />
+          <Picker.Item label="Antibiotique" value="Antibiotique" />
+          <Picker.Item label="Antihistaminique" value="Antihistaminique" />
+          <Picker.Item label="Anti-inflammatoire" value="Anti-inflammatoire" />
+          <Picker.Item label="Antipyrétique" value="Antipyrétique" />
+          <Picker.Item label="Vitamines" value="Vitamines" />
+          <Picker.Item label="Autre" value="Autre" />
+        </Picker>
+      </View>
+    </View>
+
+    {/* Buttons Container */}
+    <View className="flex-row justify-center mb-20">
+  {/* Save Button */}
+  <TouchableOpacity
+    className={`bg-blue-600 flex-row items-center justify-center p-4 rounded-xl mr-3 ${uploadingImage ? 'opacity-60' : 'opacity-100'}`}
+    onPress={handleSave}
+    disabled={uploadingImage}
+  >
+    <Ionicons name="save-outline" size={18} color="white" />
+        <Text className="text-white font-bold text-base ml-2">
+          {editingProduct ? 'Mettre à jour' : 'Ajouter'}
+        </Text>
+
+  </TouchableOpacity>
+
+  {/* Delete Button */}
+  {editingProduct && (
+    <TouchableOpacity
+      className="bg-red-600 flex-row items-center justify-center p-5 rounded-xl ml-3"
+      onPress={() =>
+            Alert.alert(
+              'Supprimer',
+              'Êtes-vous sûr de vouloir supprimer ce médicament ?',
+              [
+                { text: 'Annuler', style: 'cancel' },
+                {
+                  text: 'Supprimer',
+                  style: 'destructive',
+                  onPress: async () => {
+                    try {
+                      await databases.deleteDocument(
+                        DATABASE_ID,
+                        COLLECTION_ID,
+                        editingProduct.$id
+                      );
+                      showToast('Médicament supprimé');
+                      fetchMedicines();
+                      setModalVisible(false);
+                    } catch (error) {
+                      Alert.alert('Erreur', 'Échec de la suppression');
                     }
-                  ]
-                );
-              }}
-            >
-              <Text className="text-white font-bold text-lg">Supprimer</Text>
-            </TouchableOpacity>
-          )}
-        </ScrollView>
-      </Modal>
+                  }
+                }
+              ]
+            )
+          }
+        >
+          <Ionicons name="trash-outline" size={18} color="white" />
+          <Text className="text-white font-bold text-base ml-2">Supprimer</Text>
+    </TouchableOpacity>
+  )}
+</View>
+  </ScrollView>
+</Modal>
+
 
       {/* Stock Log Modal */}
       <Modal
