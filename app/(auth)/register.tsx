@@ -20,7 +20,8 @@ export default function RegisterPage() {
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
   const [loading, setLoading] = useState(false);
 
-  const handleChange = (field: string, value: string) => setForm(prev => ({ ...prev, [field]: value }));
+  const handleChange = (field: string, value: string) =>
+    setForm(prev => ({ ...prev, [field]: value }));
 
   const handleRegister = async () => {
     const { name, email, password, confirm } = form;
@@ -41,36 +42,34 @@ export default function RegisterPage() {
     try {
       setLoading(true);
 
-      // 1. First, delete any existing session to avoid conflicts
       try {
         await account.deleteSession('current');
-      } catch (sessionError) {
-        // If no session exists, this will throw an error, which is fine
-        console.log('No existing session to delete');
+      } catch {
+        // No existing session is fine
       }
 
-      // 2. Create account
+      // 1. Create user account
       const user = await account.create(ID.unique(), email, password, name);
-      if (!user) throw new Error('Failed to create account');
 
-      // 3. Create document in users collection
+      // 2. Create user profile document with same ID
       await databases.createDocument(
         databaseId,
         usersCollectionId,
-        ID.unique(),
+        user.$id,
         {
-          userId: user.$id,
           name,
-          email
+          email,
+          role: 'Pharmacy Manager',
+          pharmacyName: 'Default Pharmacy',
+          phone: '',
+          avatar: '',
         }
       );
 
-      // 4. Create new session after account creation
+      // 3. Create session
       await account.createEmailPasswordSession(email, password);
 
       setLoading(false);
-
-      // 5. Redirect to home
       router.replace('/(tabs)');
     } catch (error: any) {
       setLoading(false);
@@ -125,7 +124,9 @@ export default function RegisterPage() {
           />
 
           <TouchableOpacity style={styles.button} onPress={handleRegister} disabled={loading}>
-            <Text style={styles.buttonText}>{loading ? 'Creating Account...' : 'Create Account'}</Text>
+            <Text style={styles.buttonText}>
+              {loading ? 'Creating Account...' : 'Create Account'}
+            </Text>
           </TouchableOpacity>
 
           <TouchableOpacity onPress={() => router.push('/(auth)/login')}>
