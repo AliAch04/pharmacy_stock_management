@@ -1024,7 +1024,7 @@ export default function InventoryDashboard() {
     </View>
 
     <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire ($)</Text>
+      <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire</Text>
       <TextInput
         className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
         placeholder="9.99"
