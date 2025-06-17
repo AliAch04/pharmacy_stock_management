@@ -19,12 +19,11 @@ import * as FileSystem from 'expo-file-system';
 import { captureRef } from 'react-native-view-shot';
 
 const client = new Client();
-client.setEndpoint('https://[YOUR_APPWRITE_ENDPOINT]').setProject('[YOUR_PROJECT_ID]');
+client.setEndpoint('https://cloud.appwrite.io/v1').setProject('68424153002403801f6b');
 
 const databases = new Databases(client);
-const DATABASE_ID = '[YOUR_DATABASE_ID]';
-const PRODUCTS_COLLECTION_ID = 'products';
-const TRANSACTIONS_COLLECTION_ID = 'transactions';
+const DATABASE_ID = 'stock';
+const LOGS_COLLECTION_ID = 'logs';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -46,8 +45,7 @@ const chartConfig = {
 };
 
 export default function AnalyticsDashboard() {
-  const [products, setProducts] = useState([]);
-  const [transactions, setTransactions] = useState([]);
+  const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('7days');
@@ -55,30 +53,27 @@ export default function AnalyticsDashboard() {
   
   // Refs for capturing charts
   const trendChartRef = useRef();
-  const topProductsChartRef = useRef();
-  const categoryChartRef = useRef();
+  const topMedicinesChartRef = useRef();
+  const transactionTypeChartRef = useRef();
 
   const fetchData = async () => {
     try {
       setLoading(true);
       
-      const productsResponse = await databases.listDocuments(DATABASE_ID, PRODUCTS_COLLECTION_ID);
-      setProducts(productsResponse.documents);
-
       const dateLimit = getDateLimit();
-      const transactionsResponse = await databases.listDocuments(
+      const logsResponse = await databases.listDocuments(
         DATABASE_ID, 
-        TRANSACTIONS_COLLECTION_ID,
+        LOGS_COLLECTION_ID,
         [
-          Query.greaterThanEqual('createdAt', dateLimit),
-          Query.orderDesc('createdAt'),
-          Query.limit(100)
+          Query.greaterThanEqual('timestamp', dateLimit),
+          Query.orderDesc('timestamp'),
+          Query.limit(500)
         ]
       );
-      setTransactions(transactionsResponse.documents);
+      setLogs(logsResponse.documents);
     } catch (error) {
       console.error('Erreur de récupération des données:', error);
-      Alert.alert('Erreur', 'Impossible de charger les données');
+      Alert.alert('Erreur', 'Impossible de charger les données des logs');
     } finally {
       setLoading(false);
     }
@@ -108,33 +103,62 @@ export default function AnalyticsDashboard() {
     setRefreshing(false);
   };
 
-  // Statistics functions
-  const getTotalProducts = () => products.length;
-  const getLowStockProducts = () => products.filter(p => p.stock <= 5).length;
-  const getTotalStock = () => products.reduce((sum, p) => sum + (p.stock || 0), 0);
-  const getStockValue = () => {
-    return products.reduce((sum, p) => sum + ((p.stock || 0) * (p.unitPrice || 10)), 0);
+  // Statistics functions based on logs
+  const getTotalTransactions = () => logs.length;
+  
+  const getUniqueMedicines = () => {
+    const uniqueMedicines = new Set(logs.map(log => log.medicineId).filter(Boolean));
+    return uniqueMedicines.size;
+  };
+  
+  const getTotalQuantityChanged = () => {
+    return logs.reduce((sum, log) => sum + Math.abs(log.quantityChanged || 0), 0);
+  };
+
+  const getCurrentStock = () => {
+    const medicineStocks = {};
+    logs.forEach(log => {
+      if (!log.medicineId) return;
+      if (!medicineStocks[log.medicineId]) {
+        medicineStocks[log.medicineId] = {
+          name: log.medicineName || log.medicineId,
+          currentStock: 0
+        };
+      }
+      // Calculate current stock based on transaction type
+      if (log.transactionType === 'sale') {
+        medicineStocks[log.medicineId].currentStock -= (log.quantityChanged || 0);
+      } else {
+        medicineStocks[log.medicineId].currentStock += (log.quantityChanged || 0);
+      }
+    });
+    return medicineStocks;
+  };
+
+  const getLowStockMedicines = () => {
+    const stocks = getCurrentStock();
+    return Object.values(stocks).filter(med => med.currentStock <= 5).length;
   };
 
   const getRecentActivity = () => {
-    return transactions.filter(t => {
-      const transactionDate = new Date(t.createdAt);
+    return logs.filter(log => {
+      const logDate = new Date(log.timestamp);
       const yesterday = new Date();
       yesterday.setDate(yesterday.getDate() - 1);
-      return transactionDate >= yesterday;
+      return logDate >= yesterday;
     }).length;
   };
 
-  const getStockByCategory = () => {
-    const categories = {};
-    products.forEach(product => {
-      const type = product.type || 'Autre';
-      categories[type] = (categories[type] || 0) + (product.stock || 0);
+  const getTransactionTypes = () => {
+    const types = {};
+    logs.forEach(log => {
+      const type = log.transactionType || 'other';
+      types[type] = (types[type] || 0) + 1;
     });
     
     const colors = ['#3B82F6', '#EF4444', '#10B981', '#F59E0B', '#8B5CF6'];
-    return Object.entries(categories).map(([name, population], index) => ({
-      name,
+    return Object.entries(types).map(([name, population], index) => ({
+      name: name.charAt(0).toUpperCase() + name.slice(1),
       population,
       color: colors[index % colors.length],
       legendFontColor: '#7F7F7F',
@@ -142,70 +166,140 @@ export default function AnalyticsDashboard() {
     }));
   };
 
-  const getStockTrend = () => {
-    const last7Days = [];
+  // FIXED: Updated function to respect selected period
+  const getActivityTrend = () => {
+    // Determine time range based on selected period
+    const daysBack = selectedPeriod === '7days' ? 7 : 
+                    selectedPeriod === '30days' ? 30 : 90;
+    const interval = selectedPeriod === '3months' ? 'week' : 'day';
+
     const now = new Date();
-    
-    for (let i = 6; i >= 0; i--) {
-      const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
-      const dayTransactions = transactions.filter(t => {
-        const tDate = new Date(t.createdAt);
-        return tDate.toDateString() === date.toDateString();
-      });
-      
-      const dayTotal = dayTransactions.reduce((sum, t) => {
-        return sum + (t.type === 'add' ? t.quantity : -t.quantity);
-      }, 0);
-      
-      last7Days.push(Math.abs(dayTotal));
+    const dataPoints = [];
+    const labels = [];
+
+    if (interval === 'day') {
+      for (let i = daysBack - 1; i >= 0; i--) {
+        const date = new Date(now.getTime() - i * 24 * 60 * 60 * 1000);
+        
+        const dayLogs = logs.filter(log => {
+          const logDate = new Date(log.timestamp);
+          return logDate.toDateString() === date.toDateString();
+        });
+        
+        const dayTotal = dayLogs.reduce((sum, log) => {
+          return sum + Math.abs(log.quantityChanged || 0);
+        }, 0);
+        
+        dataPoints.push(dayTotal);
+        
+        // Format labels based on time range
+        if (daysBack === 7) {
+          labels.push(i === 0 ? "Auj" : `${i}j`);
+        } else {
+          if (i % 5 === 0 || i === 0) {
+            labels.push(i === 0 ? "Auj" : `${i}j`);
+          } else {
+            labels.push('');
+          }
+        }
+      }
+    } else {
+      // Weekly aggregation
+      const weeksBack = Math.ceil(daysBack / 7);
+      for (let i = weeksBack - 1; i >= 0; i--) {
+        const weekStart = new Date(now.getTime() - (i * 7 * 24 * 60 * 60 * 1000));
+        weekStart.setDate(weekStart.getDate() - weekStart.getDay()); // Start of week (Sunday)
+        const weekEnd = new Date(weekStart);
+        weekEnd.setDate(weekStart.getDate() + 6); // End of week (Saturday)
+        
+        const weekLogs = logs.filter(log => {
+          const logDate = new Date(log.timestamp);
+          return logDate >= weekStart && logDate <= weekEnd;
+        });
+        
+        const weekTotal = weekLogs.reduce((sum, log) => {
+          return sum + Math.abs(log.quantityChanged || 0);
+        }, 0);
+        
+        dataPoints.push(weekTotal);
+        
+        // Format weekly labels
+        if (i === 0) {
+          labels.push('Cette');
+        } else if (i === 1) {
+          labels.push('1s');
+        } else {
+          labels.push(`${i}s`);
+        }
+      }
     }
 
     return {
-      labels: ['6j', '5j', '4j', '3j', '2j', '1j', "Auj"],
+      labels: labels.length > 0 ? labels : ['', '', '', '', '', '', ''],
       datasets: [{
-        data: last7Days.length > 0 ? last7Days : [0, 0, 0, 0, 0, 0, 0],
+        data: dataPoints.length > 0 ? dataPoints : Array(daysBack).fill(0),
         strokeWidth: 2,
       }],
     };
   };
 
-  const getTopProducts = () => {
-    return products
-      .sort((a, b) => (b.stock || 0) - (a.stock || 0))
+  const getTopMedicines = () => {
+    const medicineActivity = {};
+    logs.forEach(log => {
+      if (!log.medicineId) return;
+      const key = log.medicineId;
+      if (!medicineActivity[key]) {
+        medicineActivity[key] = {
+          name: log.medicineName || log.medicineId,
+          totalActivity: 0
+        };
+      }
+      medicineActivity[key].totalActivity += Math.abs(log.quantityChanged || 0);
+    });
+
+    return Object.values(medicineActivity)
+      .sort((a, b) => b.totalActivity - a.totalActivity)
       .slice(0, 5)
-      .map(p => ({
-        name: p.name.length > 10 ? p.name.substring(0, 10) + '...' : p.name,
-        fullName: p.name,
-        stock: p.stock || 0,
+      .map(med => ({
+        name: med.name.length > 15 ? med.name.substring(0, 15) + '...' : med.name,
+        fullName: med.name,
+        activity: med.totalActivity,
       }));
   };
 
-  const getTopProductsChart = () => {
-    const topProducts = getTopProducts();
+  const getTopMedicinesChart = () => {
+    const topMedicines = getTopMedicines();
     return {
-      labels: topProducts.map(p => p.name),
+      labels: topMedicines.map(med => med.name),
       datasets: [{
-        data: topProducts.map(p => p.stock),
+        data: topMedicines.map(med => med.activity),
       }],
     };
   };
 
   const getLowStockList = () => {
-    return products
-      .filter(p => p.stock <= 5)
-      .sort((a, b) => (a.stock || 0) - (b.stock || 0))
+    const stocks = getCurrentStock();
+    return Object.values(stocks)
+      .filter(med => med.currentStock <= 5)
+      .sort((a, b) => a.currentStock - b.currentStock)
       .slice(0, 10);
   };
 
-  // PDF Export Function
+  const getRecentLogs = () => {
+    return logs
+      .sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
+      .slice(0, 10);
+  };
+
+  // PDF Export Function (updated for logs data)
   const exportToPDF = async () => {
     try {
       setExportingPDF(true);
       
       // Capture chart images
       let trendChartImage = '';
-      let topProductsChartImage = '';
-      let categoryChartImage = '';
+      let topMedicinesChartImage = '';
+      let transactionTypeChartImage = '';
       
       try {
         if (trendChartRef.current) {
@@ -216,20 +310,20 @@ export default function AnalyticsDashboard() {
           trendChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(trendUri, { encoding: 'base64' })}`;
         }
         
-        if (topProductsChartRef.current) {
-          const topProductsUri = await captureRef(topProductsChartRef.current, {
+        if (topMedicinesChartRef.current) {
+          const topMedicinesUri = await captureRef(topMedicinesChartRef.current, {
             format: 'png',
             quality: 0.8,
           });
-          topProductsChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(topProductsUri, { encoding: 'base64' })}`;
+          topMedicinesChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(topMedicinesUri, { encoding: 'base64' })}`;
         }
         
-        if (categoryChartRef.current) {
-          const categoryUri = await captureRef(categoryChartRef.current, {
+        if (transactionTypeChartRef.current) {
+          const transactionTypeUri = await captureRef(transactionTypeChartRef.current, {
             format: 'png',
             quality: 0.8,
           });
-          categoryChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(categoryUri, { encoding: 'base64' })}`;
+          transactionTypeChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(transactionTypeUri, { encoding: 'base64' })}`;
         }
       } catch (chartError) {
         console.log('Chart capture error:', chartError);
@@ -256,7 +350,7 @@ export default function AnalyticsDashboard() {
         <html>
         <head>
           <meta charset="utf-8">
-          <title>Rapport d'Analyse - Gestion de Stock</title>
+          <title>Rapport d'Analyse - Gestion Médicaments</title>
           <style>
             body {
               font-family: 'Helvetica', Arial, sans-serif;
@@ -336,23 +430,23 @@ export default function AnalyticsDashboard() {
               margin: 0 auto;
               border-radius: 8px;
             }
-            .products-table {
+            .logs-table {
               width: 100%;
               border-collapse: collapse;
               margin-top: 15px;
             }
-            .products-table th,
-            .products-table td {
+            .logs-table th,
+            .logs-table td {
               padding: 12px;
               text-align: left;
               border-bottom: 1px solid #eee;
             }
-            .products-table th {
+            .logs-table th {
               background: #f8f9fa;
               font-weight: bold;
               color: #333;
             }
-            .products-table tr:hover {
+            .logs-table tr:hover {
               background: #f8f9fa;
             }
             .alert-section {
@@ -392,6 +486,12 @@ export default function AnalyticsDashboard() {
             .good-stock {
               color: #10B981;
             }
+            .sale-transaction {
+              color: #EF4444;
+            }
+            .restock-transaction {
+              color: #10B981;
+            }
             @media print {
               body { background: white; }
               .chart-section, .stat-card, .footer { 
@@ -403,97 +503,100 @@ export default function AnalyticsDashboard() {
         </head>
         <body>
           <div class="header">
-            <h1>📊 Rapport d'Analyse de Stock</h1>
+            <h1>💊 Rapport d'Analyse des Médicaments</h1>
             <p>Généré le ${currentDate} • Période: ${periodLabels[selectedPeriod]}</p>
           </div>
 
           <div class="stats-grid">
             <div class="stat-card">
-              <h3>Total Produits</h3>
-              <div class="value">${getTotalProducts()}</div>
-              <div class="subtitle">produits référencés</div>
+              <h3>Total Transactions</h3>
+              <div class="value">${getTotalTransactions()}</div>
+              <div class="subtitle">transactions enregistrées</div>
             </div>
             <div class="stat-card">
-              <h3>Stock Faible</h3>
-              <div class="value" style="color: #EF4444;">${getLowStockProducts()}</div>
-              <div class="subtitle">produits à réapprovisionner</div>
+              <h3>Médicaments Uniques</h3>
+              <div class="value" style="color: #10B981;">${getUniqueMedicines()}</div>
+              <div class="subtitle">médicaments différents</div>
             </div>
             <div class="stat-card">
-              <h3>Stock Total</h3>
-              <div class="value" style="color: #10B981;">${getTotalStock()}</div>
-              <div class="subtitle">unités en stock</div>
+              <h3>Stock Critique</h3>
+              <div class="value" style="color: #EF4444;">${getLowStockMedicines()}</div>
+              <div class="subtitle">médicaments à réapprovisionner</div>
             </div>
             <div class="stat-card">
-              <h3>Valeur Estimée</h3>
-              <div class="value" style="color: #F59E0B;">${getStockValue()}€</div>
-              <div class="subtitle">valeur totale du stock</div>
+              <h3>Quantité Totale</h3>
+              <div class="value" style="color: #F59E0B;">${getTotalQuantityChanged()}</div>
+              <div class="subtitle">unités traitées</div>
             </div>
           </div>
 
-          ${getLowStockProducts() > 0 ? `
+          ${getLowStockMedicines() > 0 ? `
           <div class="alert-section">
-            <h3>⚠️ Alerte Stock Faible</h3>
-            <p><strong>${getLowStockProducts()} produit(s)</strong> ont un stock critique (≤ 5 unités)</p>
-            <p>Action recommandée: Vérifier les approvisionnements pour ces produits</p>
+            <h3>⚠️ Alerte Stock Critique</h3>
+            <p><strong>${getLowStockMedicines()} médicament(s)</strong> ont un stock critique (≤ 5 unités)</p>
+            <p>Action recommandée: Vérifier les approvisionnements pour ces médicaments</p>
           </div>
           ` : ''}
 
           ${trendChartImage ? `
           <div class="chart-section">
-            <h2>📈 Évolution du Stock (7 derniers jours)</h2>
-            <img src="${trendChartImage}" alt="Graphique d'évolution du stock" class="chart-image">
+            <h2>📈 Activité des ${periodLabels[selectedPeriod]}</h2>
+            <img src="${trendChartImage}" alt="Graphique d'activité" class="chart-image">
             <p style="text-align: center; color: #666; font-size: 12px; margin-top: 10px;">
-              Évolution des mouvements de stock sur la période sélectionnée
+              Évolution de l'activité des transactions sur la période sélectionnée
             </p>
           </div>
           ` : ''}
 
-          ${topProductsChartImage ? `
+          ${topMedicinesChartImage ? `
           <div class="chart-section">
-            <h2>🏆 Top 5 Produits par Stock</h2>
-            <img src="${topProductsChartImage}" alt="Graphique des top produits" class="chart-image">
-            <table class="products-table">
+            <h2>🏆 Top 5 Médicaments par Activité</h2>
+            <img src="${topMedicinesChartImage}" alt="Graphique des top médicaments" class="chart-image">
+            <table class="logs-table">
               <thead>
                 <tr>
-                  <th>Produit</th>
-                  <th>Stock</th>
+                  <th>Médicament</th>
+                  <th>Activité Totale</th>
                   <th>Statut</th>
                 </tr>
               </thead>
               <tbody>
-                ${getTopProducts().map(product => `
-                  <tr>
-                    <td>${product.fullName}</td>
-                    <td>${product.stock}</td>
-                    <td class="${product.stock <= 5 ? 'low-stock' : 'good-stock'}">
-                      ${product.stock <= 5 ? 'Stock faible' : 'Stock correct'}
-                    </td>
-                  </tr>
-                `).join('')}
+                ${getTopMedicines().map(medicine => {
+                  const currentStock = getCurrentStock()[medicine.fullName] || { currentStock: 0 };
+                  return `
+                    <tr>
+                      <td>${medicine.fullName}</td>
+                      <td>${medicine.activity}</td>
+                      <td class="${currentStock.currentStock <= 5 ? 'low-stock' : 'good-stock'}">
+                        ${currentStock.currentStock <= 5 ? 'Stock critique' : 'Stock correct'}
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           </div>
           ` : ''}
 
-          ${categoryChartImage ? `
+          ${transactionTypeChartImage ? `
           <div class="chart-section">
-            <h2>📊 Répartition par Catégorie</h2>
-            <img src="${categoryChartImage}" alt="Graphique de répartition par catégorie" class="chart-image">
-            <table class="products-table">
+            <h2>📊 Répartition par Type de Transaction</h2>
+            <img src="${transactionTypeChartImage}" alt="Graphique de répartition par type" class="chart-image">
+            <table class="logs-table">
               <thead>
                 <tr>
-                  <th>Catégorie</th>
-                  <th>Quantité</th>
+                  <th>Type de Transaction</th>
+                  <th>Nombre</th>
                   <th>Pourcentage</th>
                 </tr>
               </thead>
               <tbody>
-                ${getStockByCategory().map(category => {
-                  const percentage = ((category.population / getTotalStock()) * 100).toFixed(1);
+                ${getTransactionTypes().map(type => {
+                  const percentage = ((type.population / getTotalTransactions()) * 100).toFixed(1);
                   return `
                     <tr>
-                      <td>${category.name}</td>
-                      <td>${category.population}</td>
+                      <td>${type.name}</td>
+                      <td>${type.population}</td>
                       <td>${percentage}%</td>
                     </tr>
                   `;
@@ -503,31 +606,57 @@ export default function AnalyticsDashboard() {
           </div>
           ` : ''}
 
-          ${getLowStockProducts() > 0 ? `
+          ${getLowStockMedicines() > 0 ? `
           <div class="chart-section">
-            <h2>⚠️ Produits à Stock Faible</h2>
-            <table class="products-table">
+            <h2>⚠️ Médicaments à Stock Critique</h2>
+            <table class="logs-table">
               <thead>
                 <tr>
-                  <th>Produit</th>
+                  <th>Médicament</th>
                   <th>Stock Actuel</th>
-                  <th>Type</th>
-                  <th>Prix Unitaire</th>
+                  <th>Statut</th>
                 </tr>
               </thead>
               <tbody>
-                ${getLowStockList().map(product => `
+                ${getLowStockList().map(medicine => `
                   <tr>
-                    <td>${product.name}</td>
-                    <td class="low-stock">${product.stock || 0}</td>
-                    <td>${product.type || 'Non défini'}</td>
-                    <td>${product.unitPrice || 10}€</td>
+                    <td>${medicine.name}</td>
+                    <td class="low-stock">${medicine.currentStock}</td>
+                    <td class="low-stock">Critique</td>
                   </tr>
                 `).join('')}
               </tbody>
             </table>
           </div>
           ` : ''}
+
+          <div class="chart-section">
+            <h2>📋 Transactions Récentes</h2>
+            <table class="logs-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Médicament</th>
+                  <th>Type</th>
+                  <th>Quantité</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${getRecentLogs().map(log => `
+                  <tr>
+                    <td>${new Date(log.timestamp).toLocaleDateString('fr-FR')}</td>
+                    <td>${log.medicineName || log.medicineId || 'N/A'}</td>
+                    <td class="${log.transactionType === 'sale' ? 'sale-transaction' : 'restock-transaction'}">
+                      ${log.transactionType || 'N/A'}
+                    </td>
+                    <td>${log.quantityChanged || 0}</td>
+                    <td>${log.notes || '-'}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
 
           <div class="chart-section">
             <h2>📋 Résumé d'Activité</h2>
@@ -546,8 +675,8 @@ export default function AnalyticsDashboard() {
           </div>
 
           <div class="footer">
-            <p>Rapport généré automatiquement par l'application de gestion de stock</p>
-            <p>📧 Pour toute question, contactez l'équipe de gestion</p>
+            <p>Rapport généré automatiquement par l'application de gestion des médicaments</p>
+            <p>💊 Pour toute question, contactez l'équipe de gestion pharmaceutique</p>
           </div>
         </body>
         </html>
@@ -560,7 +689,7 @@ export default function AnalyticsDashboard() {
       });
 
       // Create a meaningful filename
-      const fileName = `Rapport_Stock_${new Date().toISOString().split('T')[0]}.pdf`;
+      const fileName = `Rapport_Medicaments_${new Date().toISOString().split('T')[0]}.pdf`;
       const newPath = `${FileSystem.documentDirectory}${fileName}`;
       
       await FileSystem.moveAsync({
@@ -610,7 +739,7 @@ export default function AnalyticsDashboard() {
   if (loading) {
     return (
       <SafeAreaView className="flex-1 bg-gray-50 justify-center items-center">
-        <Text className="text-gray-600">Chargement des statistiques...</Text>
+        <Text className="text-gray-600">Chargement des logs...</Text>
       </SafeAreaView>
     );
   }
@@ -619,12 +748,28 @@ export default function AnalyticsDashboard() {
     <SafeAreaView className="flex-1 bg-gray-50">
       <StatusBar style="dark" />
       
-      {/* Header */}
-      <View className="flex-row justify-between items-center p-4 bg-white shadow">
-        <Text className="text-xl font-bold">Tableau de Bord</Text>
-        <View className="flex-row items-center">
-          {/* Period Selection */}
-          <View className="flex-row bg-gray-100 rounded-lg mr-3">
+      {/* FIXED: Header layout */}
+      <View className="p-4 bg-white shadow">
+        <View className="flex-row justify-between items-center mb-3">
+          <Text className="text-xl font-bold">Tableau de Bord Médicaments</Text>
+          <TouchableOpacity
+            className={`bg-blue-500 px-4 py-2 rounded-lg flex-row items-center ${exportingPDF ? 'opacity-50' : ''}`}
+            onPress={exportToPDF}
+            disabled={exportingPDF}
+          >
+            <Ionicons 
+              name={exportingPDF ? "hourglass-outline" : "document-text-outline"} 
+              size={16} 
+              color="white" 
+            />
+            <Text className="text-white text-sm ml-1 font-medium">
+              {exportingPDF ? 'Export...' : 'PDF'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+        
+        <View className="flex-row justify-center">
+          <View className="flex-row bg-gray-100 rounded-lg">
             {[
               { key: '7days', label: '7j' },
               { key: '30days', label: '30j' },
@@ -641,22 +786,6 @@ export default function AnalyticsDashboard() {
               </TouchableOpacity>
             ))}
           </View>
-          
-          {/* PDF Export Button */}
-          <TouchableOpacity
-            className={`bg-blue-500 px-4 py-2 rounded-lg flex-row items-center ${exportingPDF ? 'opacity-50' : ''}`}
-            onPress={exportToPDF}
-            disabled={exportingPDF}
-          >
-            <Ionicons 
-              name={exportingPDF ? "hourglass-outline" : "document-text-outline"} 
-              size={16} 
-              color="white" 
-            />
-            <Text className="text-white text-sm ml-1 font-medium">
-              {exportingPDF ? 'Export...' : 'PDF'}
-            </Text>
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -667,41 +796,42 @@ export default function AnalyticsDashboard() {
         {/* Stats Cards */}
         <View className="flex-row mb-4">
           <StatCard
-            title="Total Produits"
-            value={getTotalProducts()}
-            icon="cube-outline"
+            title="Total Transactions"
+            value={getTotalTransactions()}
+            icon="receipt-outline"
             color="#3B82F6"
           />
           <StatCard
-            title="Stock Faible"
-            value={getLowStockProducts()}
-            icon="warning-outline"
-            color="#EF4444"
+            title="Médicaments Uniques"
+            value={getUniqueMedicines()}
+            icon="medical-outline"
+            color="#10B981"
           />
         </View>
 
         <View className="flex-row mb-6">
           <StatCard
-            title="Stock Total"
-            value={getTotalStock()}
-            icon="layers-outline"
-            color="#10B981"
-            subtitle="unités"
+            title="Stock Critique"
+            value={getLowStockMedicines()}
+            icon="warning-outline"
+            color="#EF4444"
+            subtitle="médicaments"
           />
           <StatCard
-            title="Valeur Estimée"
-            value={`${getStockValue()}€`}
-            icon="cash-outline"
+            title="Quantité Totale"
+            value={getTotalQuantityChanged()}
+            icon="layers-outline"
             color="#F59E0B"
+            subtitle="unités"
           />
         </View>
 
-        {/* Stock Trend Chart */}
+        {/* Activity Trend Chart */}
         <View className="bg-white p-4 rounded-lg shadow-sm mb-4">
-          <Text className="text-lg font-semibold mb-3">Évolution du Stock (7 derniers jours)</Text>
+          <Text className="text-lg font-semibold mb-3">Activité des {selectedPeriod === '7days' ? '7 derniers jours' : selectedPeriod === '30days' ? '30 derniers jours' : '3 derniers mois'}</Text>
           <View ref={trendChartRef}>
             <LineChart
-              data={getStockTrend()}
+              data={getActivityTrend()}
               width={screenWidth - 60}
               height={200}
               chartConfig={chartConfig}
@@ -714,12 +844,12 @@ export default function AnalyticsDashboard() {
           </View>
         </View>
 
-        {/* Top Products Chart */}
+        {/* Top Medicines Chart */}
         <View className="bg-white p-4 rounded-lg shadow-sm mb-4">
-          <Text className="text-lg font-semibold mb-3">Top 5 Produits par Stock</Text>
-          <View ref={topProductsChartRef}>
+          <Text className="text-lg font-semibold mb-3">Top 5 Médicaments par Activité</Text>
+          <View ref={topMedicinesChartRef}>
             <BarChart
-              data={getTopProductsChart()}
+              data={getTopMedicinesChart()}
               width={screenWidth - 60}
               height={200}
               chartConfig={chartConfig}
@@ -734,9 +864,9 @@ export default function AnalyticsDashboard() {
         {/* Stock by Category */}
         <View className="bg-white p-4 rounded-lg shadow-sm mb-4">
           <Text className="text-lg font-semibold mb-3">Répartition par Catégorie</Text>
-          <View ref={categoryChartRef}>
+          <View ref={transactionTypeChartRef}>
             <PieChart
-              data={getStockByCategory()}
+              data={getTransactionTypes()}
               width={screenWidth - 60}
               height={200}
               chartConfig={chartConfig}
@@ -763,14 +893,14 @@ export default function AnalyticsDashboard() {
         </View>
 
         {/* Low Stock Alert */}
-        {getLowStockProducts() > 0 && (
+        {getLowStockMedicines() > 0 && (
           <View className="bg-red-50 border border-red-200 p-4 rounded-lg shadow-sm mb-4">
             <View className="flex-row items-center mb-2">
               <Ionicons name="alert-circle-outline" size={20} color="#EF4444" />
               <Text className="ml-2 text-red-800 font-semibold">Alerte Stock Faible</Text>
             </View>
             <Text className="text-red-700">
-              {getLowStockProducts()} produit(s) ont un stock faible (≤ 5 unités)
+              {getLowStockMedicines()} produit(s) ont un stock faible (≤ 5 unités)
             </Text>
             <Text className="text-red-600 text-sm mt-1">
               Vérifiez la liste des produits pour plus de détails
