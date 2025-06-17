@@ -11,11 +11,21 @@ import {
   Alert,
   StatusBar,
   RefreshControl,
+  Modal,
+  TextInput,
+  ActivityIndicator,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { account, databases, databaseId, usersCollectionId } from '../../lib/appwrite';
+import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import { account, databases, storage, databaseId, usersCollectionId } from '../../lib/appwrite';
+import { Query, AppwriteException } from 'appwrite';
+
+const avatarBucketId = 'medicines-images';
+
+
 interface UserInfo {
   id: string;
   name: string;
@@ -25,27 +35,55 @@ interface UserInfo {
   pharmacyName: string;
   phone: string;
   avatar?: string;
+  avatarFileId?: string;
 }
 
 const ProfilePage = () => {
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editType, setEditType] = useState<'phone' | 'pharmacy'>('phone');
+  const [editValue, setEditValue] = useState('');
+  const [isUpdating, setIsUpdating] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [avatarError, setAvatarError] = useState(false); // Track avatar loading errors
 
   useEffect(() => {
     loadUserData();
+    requestMediaPermissions();
   }, []);
+
+  const requestMediaPermissions = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert('Permission required', 'Please enable media access to change your avatar');
+    }
+  };
 
   const loadUserData = async () => {
     try {
       const user = await account.get();
-      const userDoc = await databases.getDocument(
-        databaseId,        
+      const response = await databases.listDocuments(
+        databaseId,
         usersCollectionId,
-        user.$id
+        [Query.equal('email', user.email)]
       );
 
-      const userData: UserInfo = {
+      if (response.documents.length === 0) {
+        throw new Error('User profile not found in database');
+      }
+
+      const userDoc = response.documents[0];
+      
+      // Generate avatar URL if we have a file ID
+      let avatarUrl = '';
+      if (userDoc.avatarFileId) {
+        // FIXED: Use .href instead of .toString() to get the actual URL string
+        avatarUrl = storage.getFilePreview(avatarBucketId, userDoc.avatarFileId).href;
+      }
+      
+      setUserInfo({
         id: userDoc.$id,
         name: userDoc.name,
         email: user.email,
@@ -53,13 +91,28 @@ const ProfilePage = () => {
         joinDate: user.registration,
         pharmacyName: userDoc.pharmacyName,
         phone: userDoc.phone,
-        avatar: userDoc.avatar || '',
-      };
-
-      setUserInfo(userData);
+        avatar: avatarUrl || userDoc.avatar || '',
+        avatarFileId: userDoc.avatarFileId || '',
+      });
     } catch (error) {
       console.error('Error loading user data:', error);
-      Alert.alert('Error', 'Failed to load profile.');
+      
+      let errorMessage = 'Failed to load profile.';
+      
+      if (error instanceof AppwriteException) {
+        console.error('Appwrite error:', error.code, error.type, error.response);
+        errorMessage = `Appwrite error: ${error.message || error.code}`;
+      } else if (error.code === 401) {
+        errorMessage = 'Please log in again.';
+        router.replace('/login');
+        return;
+      } else if (error.code === 404 || error.message?.includes?.('not found')) {
+        errorMessage = 'Profile not found. Please contact support.';
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
     } finally {
       setLoading(false);
     }
@@ -83,7 +136,7 @@ const ProfilePage = () => {
           onPress: async () => {
             try {
               await account.deleteSession('current');
-              router.replace('/login'); // or wherever your login route is
+              router.replace('/login');
             } catch (error) {
               console.error('Logout error:', error);
               Alert.alert('Error', 'Failed to logout.');
@@ -96,20 +149,233 @@ const ProfilePage = () => {
 
   const handleEditProfile = () => router.push('/edit-profile');
 
-  const handleChangePassword = () =>
+  const openEditor = (type: 'phone' | 'pharmacy') => {
+    if (!userInfo) return;
+    
+    setEditType(type);
+    
+    if (type === 'phone') {
+      setEditValue(userInfo.phone);
+    } else if (type === 'pharmacy') {
+      setEditValue(userInfo.pharmacyName);
+    }
+    
+    setEditModalVisible(true);
+  };
+
+  const updateProfileInfo = async () => {
+    if (!userInfo || !editValue.trim()) {
+      Alert.alert('Error', 'Please enter a valid value');
+      return;
+    }
+
+    try {
+      setIsUpdating(true);
+      
+      // Create update object
+      const updateData: { phone?: string; pharmacyName?: string } = {};
+      
+      if (editType === 'phone') {
+        const phoneRegex = /^[0-9+\-\s()]{8,15}$/;
+        if (!phoneRegex.test(editValue)) {
+          throw new Error('Please enter a valid phone number (8-15 digits)');
+        }
+        updateData.phone = editValue;
+      } else if (editType === 'pharmacy') {
+        if (editValue.length < 2) {
+          throw new Error('Pharmacy name must be at least 2 characters');
+        }
+        updateData.pharmacyName = editValue;
+      }
+      
+      // Update document in Appwrite
+      await databases.updateDocument(
+        databaseId,
+        usersCollectionId,
+        userInfo.id,
+        updateData
+      );
+      
+      // Update local state
+      setUserInfo({
+        ...userInfo,
+        ...updateData
+      });
+      
+      setEditModalVisible(false);
+      Alert.alert('Success', `${editType === 'phone' ? 'Phone number' : 'Pharmacy name'} updated successfully`);
+    } catch (error) {
+      console.error('Update error:', error);
+      
+      let errorMessage = `Failed to update ${editType === 'phone' ? 'phone number' : 'pharmacy name'}. Please try again.`;
+      
+      if (error instanceof AppwriteException) {
+        console.error('Appwrite error details:', {
+          code: error.code,
+          type: error.type,
+          response: error.response,
+          message: error.message
+        });
+        
+        switch (error.code) {
+          case 401:
+            errorMessage = 'Session expired. Please log in again.';
+            router.replace('/login');
+            break;
+          case 403:
+            errorMessage = 'Permission denied. You cannot update this resource.';
+            break;
+          case 404:
+            errorMessage = 'User document not found.';
+            break;
+          case 409:
+            errorMessage = 'Conflict: Another user has the same value.';
+            break;
+          default:
+            errorMessage = `Appwrite error: ${error.message || error.code}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleChangePassword = () => 
     Alert.alert('Change Password', 'This feature will be implemented soon.');
-
-  const handleSettings = () =>
+  
+  const handleSettings = () => 
     Alert.alert('Settings', 'This feature will be implemented soon.');
-
-  const handleSupport = () =>
+  
+  const handleSupport = () => 
     Alert.alert('Support', 'Contact support at: support@pharmstock.com');
+
+  const pickImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await uploadAvatar(result.assets[0].uri);
+      }
+    } catch (error) {
+      console.error('Image picker error:', error);
+      Alert.alert('Error', 'Failed to select image. Please try again.');
+    }
+  };
+
+  const uploadAvatar = async (uri: string) => {
+    if (!userInfo) return;
+    
+    try {
+      setIsUploadingAvatar(true);
+      setAvatarError(false); // Reset error state when uploading new avatar
+      
+      // Get file info
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error('Selected file does not exist');
+      }
+
+      // Read the file as a base64 string
+      const base64 = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      // Get the file extension
+      const fileExt = uri.split('.').pop();
+      const mimeType = `image/${fileExt === 'jpg' || fileExt === 'jpeg' ? 'jpeg' : 'png'}`;
+
+      // Create a blob from base64
+      const blob = await fetch(`data:${mimeType};base64,${base64}`).then(res => res.blob());
+
+      // Create form data
+      const formData = new FormData();
+      formData.append('fileId', 'unique()');
+      formData.append('file', blob as any, `avatar-${Date.now()}.${fileExt}`);
+
+      // Upload to Appwrite storage
+      const uploadResponse = await storage.createFile(
+        avatarBucketId,
+        'unique()',
+        formData
+      );
+
+      // Delete previous avatar if exists
+      if (userInfo.avatarFileId) {
+        try {
+          await storage.deleteFile(avatarBucketId, userInfo.avatarFileId);
+        } catch (deleteError) {
+          console.warn('Failed to delete old avatar:', deleteError);
+        }
+      }
+
+      // Get preview URL
+      // FIXED: Use .href to get the actual URL string
+      const avatarUrl = storage.getFilePreview(avatarBucketId, uploadResponse.$id).href;
+      
+      // Update user document with new avatar file ID
+      await databases.updateDocument(
+        databaseId,
+        usersCollectionId,
+        userInfo.id,
+        { avatarFileId: uploadResponse.$id }
+      );
+
+      // Update local state
+      setUserInfo({ 
+        ...userInfo, 
+        avatar: avatarUrl,
+        avatarFileId: uploadResponse.$id
+      });
+      
+      Alert.alert('Success', 'Avatar updated successfully');
+    } catch (error) {
+      console.error('Avatar upload error:', error);
+      
+      let errorMessage = 'Failed to update avatar. Please try again.';
+      
+      if (error instanceof AppwriteException) {
+        switch (error.code) {
+          case 401:
+            errorMessage = 'Session expired. Please log in again.';
+            router.replace('/login');
+            break;
+          case 403:
+            errorMessage = 'You do not have permission to update your avatar.';
+            break;
+          case 409:
+            errorMessage = 'File with this name already exists.';
+            break;
+          case 413:
+            errorMessage = 'File is too large. Maximum size is 5MB.';
+            break;
+          default:
+            errorMessage = `Appwrite error: ${error.message || error.code}`;
+        }
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
 
   if (loading) {
     return (
       <SafeAreaView style={styles.container}>
         <LinearGradient colors={['#667eea', '#764ba2']} style={styles.gradient}>
           <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#ffffff" />
             <Text style={styles.loadingText}>Loading profile...</Text>
           </View>
         </LinearGradient>
@@ -157,21 +423,40 @@ const ProfilePage = () => {
           {/* Profile Card */}
           <View style={styles.profileCard}>
             <View style={styles.avatarContainer}>
-              {userInfo.avatar ? (
-                <Image source={{ uri: userInfo.avatar }} style={styles.avatar} />
+              {userInfo.avatar && !avatarError ? (
+                <Image 
+                  source={{ uri: userInfo.avatar }} 
+                  style={styles.avatar} 
+                  onError={() => setAvatarError(true)} // Handle image loading errors
+                />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Ionicons name="person" size={50} color="#667eea" />
                 </View>
               )}
-              <TouchableOpacity style={styles.editAvatarButton}>
-                <Ionicons name="camera" size={16} color="#fff" />
+              <TouchableOpacity 
+                style={styles.editAvatarButton} 
+                onPress={pickImage}
+                disabled={isUploadingAvatar}
+              >
+                {isUploadingAvatar ? (
+                  <ActivityIndicator size="small" color="#fff" />
+                ) : (
+                  <Ionicons name="camera" size={16} color="#fff" />
+                )}
               </TouchableOpacity>
             </View>
 
             <Text style={styles.userName}>{userInfo.name}</Text>
             <Text style={styles.userRole}>{userInfo.role}</Text>
-            <Text style={styles.pharmacyName}>{userInfo.pharmacyName}</Text>
+            
+            <TouchableOpacity 
+              style={styles.pharmacyContainer} 
+              onPress={() => openEditor('pharmacy')}
+            >
+              <Text style={styles.pharmacyName}>{userInfo.pharmacyName}</Text>
+              <Ionicons name="create-outline" size={16} color="#667eea" style={styles.editIcon} />
+            </TouchableOpacity>
 
             <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
               <Ionicons name="create-outline" size={20} color="#667eea" />
@@ -194,15 +479,20 @@ const ProfilePage = () => {
                 </View>
               </View>
 
-              <View style={styles.infoItem}>
-                <View style={styles.infoIcon}>
-                  <Ionicons name="call-outline" size={20} color="#667eea" />
+              <TouchableOpacity onPress={() => openEditor('phone')}>
+                <View style={styles.infoItem}>
+                  <View style={styles.infoIcon}>
+                    <Ionicons name="call-outline" size={20} color="#667eea" />
+                  </View>
+                  <View style={styles.infoContent}>
+                    <Text style={styles.infoLabel}>Phone</Text>
+                    <View style={styles.valueContainer}>
+                      <Text style={styles.infoValue}>{userInfo.phone}</Text>
+                      <Ionicons name="create-outline" size={16} color="#667eea" style={styles.editIcon} />
+                    </View>
+                  </View>
                 </View>
-                <View style={styles.infoContent}>
-                  <Text style={styles.infoLabel}>Phone</Text>
-                  <Text style={styles.infoValue}>{userInfo.phone}</Text>
-                </View>
-              </View>
+              </TouchableOpacity>
 
               <View style={styles.infoItem}>
                 <View style={styles.infoIcon}>
@@ -272,6 +562,62 @@ const ProfilePage = () => {
           </View>
         </ScrollView>
       </LinearGradient>
+
+      {/* Edit Modal */}
+      <Modal
+        animationType="slide"
+        transparent={true}
+        visible={editModalVisible}
+        onRequestClose={() => !isUpdating && setEditModalVisible(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              Edit {editType === 'phone' ? 'Phone Number' : 'Pharmacy Name'}
+            </Text>
+            
+            <TextInput
+              style={styles.input}
+              value={editValue}
+              onChangeText={setEditValue}
+              placeholder={`Enter your ${editType === 'phone' ? 'phone number' : 'pharmacy name'}`}
+              placeholderTextColor="#888"
+              autoFocus
+              editable={!isUpdating}
+              multiline={editType === 'pharmacy'}
+              numberOfLines={editType === 'pharmacy' ? 2 : 1}
+            />
+            
+            {editType === 'phone' && (
+              <Text style={styles.formatHint}>
+                Format: 8-15 digits, can include + - ( )
+              </Text>
+            )}
+            
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.cancelButton]}
+                onPress={() => setEditModalVisible(false)}
+                disabled={isUpdating}
+              >
+                <Text style={styles.buttonText}>Cancel</Text>
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.modalButton, styles.saveButton, isUpdating && styles.disabledButton]}
+                onPress={updateProfileInfo}
+                disabled={isUpdating}
+              >
+                {isUpdating ? (
+                  <ActivityIndicator color="#fff" />
+                ) : (
+                  <Text style={styles.buttonText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 };
@@ -392,10 +738,20 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 5,
   },
-  pharmacyName: {
-    fontSize: 14,
-    color: '#666',
+  pharmacyContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
     marginBottom: 20,
+  },
+  pharmacyName: {
+    fontSize: 16,
+    color: '#666',
+    fontWeight: '500',
+    textAlign: 'center',
+    marginRight: 8,
+  },
+  editIcon: {
+    marginLeft: 5,
   },
   editProfileButton: {
     flexDirection: 'row',
@@ -493,6 +849,10 @@ const styles = StyleSheet.create({
     color: '#333',
     fontWeight: '500',
   },
+  valueContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
   actionText: {
     flex: 1,
     fontSize: 16,
@@ -501,6 +861,73 @@ const styles = StyleSheet.create({
   },
   logoutText: {
     color: '#ff4757',
+  },
+  // Modal styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.5)',
+  },
+  modalContent: {
+    width: '80%',
+    backgroundColor: 'white',
+    borderRadius: 20,
+    padding: 25,
+    alignItems: 'center',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 15,
+    color: '#333',
+    textAlign: 'center',
+  },
+  input: {
+    width: '100%',
+    minHeight: 50,
+    borderColor: '#667eea',
+    borderWidth: 1,
+    borderRadius: 10,
+    paddingHorizontal: 15,
+    paddingVertical: 12,
+    marginBottom: 10,
+    fontSize: 16,
+    backgroundColor: '#f8f9fa',
+    textAlignVertical: 'top',
+  },
+  formatHint: {
+    alignSelf: 'flex-start',
+    color: '#666',
+    fontSize: 12,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    width: '100%',
+  },
+  modalButton: {
+    flex: 1,
+    paddingVertical: 12,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#e0e0e0',
+  },
+  saveButton: {
+    backgroundColor: '#667eea',
+  },
+  disabledButton: {
+    backgroundColor: '#a0a0a0',
+  },
+  buttonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 16,
   },
 });
 
