@@ -809,6 +809,7 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     elevation: 5,
     marginBottom: 100
+
   },
   infoItem: {
     flexDirection: 'row',
@@ -826,6 +827,7 @@ const styles = StyleSheet.create({
   },
   logoutItem: {
     borderBottomWidth: 0,
+
   },
   infoIcon: {
     width: 40,
