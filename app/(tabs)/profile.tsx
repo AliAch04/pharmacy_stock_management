@@ -277,45 +277,53 @@ const ProfilePage = () => {
       setIsUploadingAvatar(true);
       setAvatarError(false);
       
-      console.log('Upload avec base64...');
+      console.log('Upload avec FormData...');
       
-      // Lire le fichier en base64
-      const base64 = await FileSystem.readAsStringAsync(selectedImage.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Convertir base64 en Uint8Array
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      // Créer un blob
-      const blob = new Blob([bytes], { type: selectedImage.mimeType || 'image/jpeg' });
-      
+      const fileId = ID.unique();
       const fileName = `avatar_${Date.now()}.jpg`;
-      const file = new File([blob], fileName, { type: blob.type });
+      
+      // Créer FormData
+      const formData = new FormData();
+      formData.append('fileId', fileId);
+      formData.append('file', {
+        uri: selectedImage.uri,
+        type: selectedImage.mimeType || 'image/jpeg',
+        name: fileName,
+      } as any);
 
-      console.log('File créé:', {
-        name: file.name,
-        size: file.size,
-        type: file.type
-      });
-
-      // Upload avec Appwrite SDK
-      const uploadResult = await storage.createFile(
-        avatarBucketId,
-        ID.unique(),
-        file
+      // Faire l'appel direct à l'API Appwrite
+      const response = await fetch(
+        `https://cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files`,
+        {
+          method: 'POST',
+          headers: {
+            'X-Appwrite-Project': PROJECT_ID,
+            // Pas de Content-Type pour FormData, le navigateur le gère
+          },
+          body: formData,
+        }
       );
 
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
+      }
+
+      const uploadResult = await response.json();
       console.log('Upload réussi:', uploadResult);
 
       // Delete previous avatar if exists
       if (userInfo.avatarFileId) {
         try {
-          await storage.deleteFile(avatarBucketId, userInfo.avatarFileId);
+          await fetch(
+            `https://cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files/${userInfo.avatarFileId}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'X-Appwrite-Project': PROJECT_ID,
+              },
+            }
+          );
           console.log('Ancien avatar supprimé');
         } catch (deleteError) {
           console.warn('Failed to delete old avatar:', deleteError);
