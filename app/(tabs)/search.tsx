@@ -9,10 +9,13 @@ import {
   Image, 
   TouchableOpacity,
   Modal,
-  Button
+  Button,
+  Dimensions
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { getMedicines, getFilePreview, getCategories } from '@/services/medicines';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 const Search = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,8 +33,23 @@ const Search = () => {
   const [sortField, setSortField] = useState('name');
   const [sortOrder, setSortOrder] = useState('ASC');
   const [categories, setCategories] = useState([]);
+  const [imageErrors, setImageErrors] = useState({});
 
   const limit = 10;
+
+  // Fonction pour construire l'URL de l'image
+  const getImageUrl = (imageId) => {
+    if (!imageId) return null;
+    return `https://fra.cloud.appwrite.io/v1/storage/buckets/medicines-images/files/${imageId}/view?project=68424153002403801f6b&mode=admin`;
+  };
+
+  // Gérer les erreurs d'image
+  const handleImageError = (itemId) => {
+    setImageErrors(prev => ({
+      ...prev,
+      [itemId]: true
+    }));
+  };
 
   // Fetch categories on mount
   useEffect(() => {
@@ -52,6 +70,7 @@ const Search = () => {
       setPage(0);
       setMedicines([]);
       setHasMore(true);
+      setImageErrors({}); // Reset image errors
     }
 
     if (!hasMore && !reset) return;
@@ -105,23 +124,64 @@ const Search = () => {
     setSortOrder(prev => prev === 'ASC' ? 'DESC' : 'ASC');
   };
 
-  const renderItem = ({ item }) => (
-    <View style={styles.itemContainer}>
-      {item.image && (
-        <Image 
-          source={{ uri: getFilePreview(item.image) }} 
-          style={styles.image} 
-          resizeMode="cover"
-        />
-      )}
-      <View style={styles.textContainer}>
-        <Text style={styles.name}>{item.name}</Text>
-        <Text style={styles.category}>{item.category}</Text>
-        <Text style={styles.description}>{item.description}</Text>
-        <Text style={styles.price}>${item.price.toFixed(2)}</Text>
-      </View>
-    </View>
-  );
+  const renderItem = ({ item }) => {
+    const imageUrl = getImageUrl(item.image);
+    const hasImageError = imageErrors[item.$id];
+
+    return (
+      <TouchableOpacity style={styles.itemContainer}>
+        <View style={styles.imageContainer}>
+          {imageUrl && !hasImageError ? (
+            <Image 
+              source={{ uri: imageUrl }} 
+              style={styles.medicineImage} 
+              resizeMode="cover"
+              onError={() => handleImageError(item.$id)}
+            />
+          ) : (
+            <View style={styles.placeholderImage}>
+              <Text style={styles.placeholderText}>📋</Text>
+              <Text style={styles.placeholderSubtext}>Pas d'image</Text>
+            </View>
+          )}
+          
+          {/* Badge de statut */}
+          <View style={[
+            styles.statusBadge, 
+            { backgroundColor: item.status === 'available' ? '#4CAF50' : '#FF9800' }
+          ]}>
+            <Text style={styles.statusText}>
+              {item.quantity > 0 ? 'Disponible' : 'Indisponible'}
+            </Text>
+          </View>
+        </View>
+
+        <View style={styles.contentContainer}>
+          <View style={styles.headerContainer}>
+            <Text style={styles.medicineName} numberOfLines={2}>
+              {item.name}
+            </Text>
+            <Text style={styles.price}>${item.price.toFixed(2)}</Text>
+          </View>
+          
+          <Text style={styles.category}>{item.category}</Text>
+          
+          <Text style={styles.description} numberOfLines={3}>
+            {item.description}
+          </Text>
+          
+          <View style={styles.footerContainer}>
+            <Text style={styles.quantity}>
+              Quantité: {item.quantity}
+            </Text>
+            <TouchableOpacity style={styles.detailButton}>
+              <Text style={styles.detailButtonText}>Voir détails</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   return (
     <View style={styles.container}>
@@ -137,37 +197,40 @@ const Search = () => {
           style={styles.filterButton}
           onPress={() => setShowFilters(true)}
         >
-          <Text>Filtres</Text>
+          <Text style={styles.filterButtonText}>🔍 Filtres</Text>
         </TouchableOpacity>
       </View>
 
       <View style={styles.sortContainer}>
         <TouchableOpacity 
-          style={styles.sortButton}
+          style={[styles.sortButton, sortField === 'name' && styles.activeSortButton]}
           onPress={() => setSortField('name')}
         >
-          <Text style={sortField === 'name' ? styles.activeSort : {}}>
-            Trier par nom {sortField === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
+          <Text style={[styles.sortButtonText, sortField === 'name' && styles.activeSortText]}>
+            Nom {sortField === 'name' && (sortOrder === 'ASC' ? '↑' : '↓')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={styles.sortButton}
+          style={[styles.sortButton, sortField === 'price' && styles.activeSortButton]}
           onPress={() => setSortField('price')}
         >
-          <Text style={sortField === 'price' ? styles.activeSort : {}}>
-            Trier par prix {sortField === 'price' && (sortOrder === 'ASC' ? '↑' : '↓')}
+          <Text style={[styles.sortButtonText, sortField === 'price' && styles.activeSortText]}>
+            Prix {sortField === 'price' && (sortOrder === 'ASC' ? '↑' : '↓')}
           </Text>
         </TouchableOpacity>
         <TouchableOpacity 
-          style={styles.sortButton}
+          style={styles.toggleButton}
           onPress={toggleSortOrder}
         >
-          <Text>Inverser l'ordre</Text>
+          <Text style={styles.toggleButtonText}>⇅</Text>
         </TouchableOpacity>
       </View>
 
       {loading && page === 0 ? (
-        <ActivityIndicator size="large" style={styles.loader} />
+        <View style={styles.centerLoader}>
+          <ActivityIndicator size="large" color="#2196F3" />
+          <Text style={styles.loadingText}>Recherche en cours...</Text>
+        </View>
       ) : error ? (
         <Text style={styles.error}>{error}</Text>
       ) : (
@@ -176,16 +239,20 @@ const Search = () => {
           renderItem={renderItem}
           keyExtractor={(item) => item.$id}
           contentContainerStyle={styles.list}
+          showsVerticalScrollIndicator={false}
           ListEmptyComponent={
-            <Text style={styles.emptyText}>
-              {searchTerm ? 'Aucun médicament trouvé' : 'Recherchez des médicaments...'}
-            </Text>
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>🔍</Text>
+              <Text style={styles.emptyText}>
+                {searchTerm ? 'Aucun médicament trouvé' : 'Recherchez des médicaments...'}
+              </Text>
+            </View>
           }
           onEndReached={loadMore}
           onEndReachedThreshold={0.5}
           ListFooterComponent={
             loading && page > 0 ? (
-              <ActivityIndicator size="small" style={styles.footerLoader} />
+              <ActivityIndicator size="small" style={styles.footerLoader} color="#2196F3" />
             ) : null
           }
         />
@@ -199,7 +266,7 @@ const Search = () => {
       >
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Filtres</Text>
+            <Text style={styles.modalTitle}>Filtres de recherche</Text>
             
             <Text style={styles.filterLabel}>Catégorie</Text>
             <View style={styles.categoryContainer}>
@@ -215,12 +282,19 @@ const Search = () => {
                     category: prev.category === cat ? '' : cat
                   }))}
                 >
-                  <Text>{cat}</Text>
+                  <Text style={[
+                    styles.categoryButtonText,
+                    filters.category === cat && styles.selectedCategoryText
+                  ]}>
+                    {cat}
+                  </Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <Text style={styles.filterLabel}>Fourchette de prix (${filters.minPrice} - ${filters.maxPrice})</Text>
+            <Text style={styles.filterLabel}>
+              Fourchette de prix (${filters.minPrice} - ${filters.maxPrice})
+            </Text>
             <View style={styles.priceInputContainer}>
               <TextInput
                 style={styles.priceInput}
@@ -233,15 +307,16 @@ const Search = () => {
                   }));
                 }}
                 keyboardType="numeric"
+                placeholder="Min"
               />
               <Slider
                 style={styles.slider}
                 minimumValue={0}
                 maximumValue={1000}
                 step={10}
-                minimumTrackTintColor="#1fb28a"
+                minimumTrackTintColor="#2196F3"
                 maximumTrackTintColor="#d3d3d3"
-                thumbTintColor="#1a9274"
+                thumbTintColor="#2196F3"
                 value={filters.maxPrice}
                 onValueChange={value => setFilters(prev => ({
                   ...prev,
@@ -260,16 +335,27 @@ const Search = () => {
                   }));
                 }}
                 keyboardType="numeric"
+                placeholder="Max"
               />
             </View>
 
-            <Button 
-              title="Appliquer les filtres" 
-              onPress={() => {
-                setShowFilters(false);
-                fetchMedicines(true);
-              }} 
-            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity 
+                style={styles.cancelButton}
+                onPress={() => setShowFilters(false)}
+              >
+                <Text style={styles.cancelButtonText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.applyButton}
+                onPress={() => {
+                  setShowFilters(false);
+                  fetchMedicines(true);
+                }}
+              >
+                <Text style={styles.applyButtonText}>Appliquer</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         </View>
       </Modal>
@@ -280,136 +366,269 @@ const Search = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    padding: 16,
-    backgroundColor: '#fff',
+    backgroundColor: '#f5f5f5',
   },
   searchContainer: {
     flexDirection: 'row',
-    marginBottom: 16,
+    padding: 16,
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginTop:40
   },
   searchInput: {
     flex: 1,
-    height: 50,
-    borderColor: '#ccc',
+    height: 48,
+    borderColor: '#ddd',
     borderWidth: 1,
-    borderRadius: 8,
-    paddingHorizontal: 16,
+    borderRadius: 24,
+    paddingHorizontal: 20,
+    marginRight: 12,
+    backgroundColor: '#f9f9f9',
     fontSize: 16,
   },
   filterButton: {
-    marginLeft: 10,
-    padding: 10,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 8,
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderRadius: 24,
     justifyContent: 'center',
-    alignItems: 'center',
+  },
+  filterButtonText: {
+    color: '#fff',
+    fontWeight: '600',
+    fontSize: 14,
   },
   sortContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  sortButton: {
-    padding: 10,
-    backgroundColor: '#f0f0f0',
-    borderRadius: 8,
-  },
-  activeSort: {
-    fontWeight: 'bold',
-    color: '#1a9274',
-  },
-  itemContainer: {
-    flexDirection: 'row',
-    padding: 16,
+    padding: 12,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#eee',
   },
-  image: {
-    width: 80,
-    height: 80,
-    borderRadius: 8,
-    marginRight: 16,
-  },
-  textContainer: {
+  sortButton: {
     flex: 1,
-    justifyContent: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginHorizontal: 4,
+    borderRadius: 16,
+    backgroundColor: '#f0f0f0',
   },
-  name: {
+  activeSortButton: {
+    backgroundColor: '#2196F3',
+  },
+  sortButtonText: {
+    textAlign: 'center',
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#666',
+  },
+  activeSortText: {
+    color: '#fff',
+  },
+  toggleButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+    backgroundColor: '#FF9800',
+  },
+  toggleButtonText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: 'bold',
-    marginBottom: 4,
+  },
+  list: {
+    padding: 8,
+  },
+  itemContainer: {
+    backgroundColor: '#fff',
+    marginVertical: 6,
+    marginHorizontal: 8,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    overflow: 'hidden',
+  },
+  imageContainer: {
+    position: 'relative',
+    height: 180,
+  },
+  medicineImage: {
+    width: '100%',
+    height: '100%',
+  },
+  placeholderImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#f0f0f0',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  placeholderText: {
+    fontSize: 32,
+    marginBottom: 8,
+  },
+  placeholderSubtext: {
+    fontSize: 12,
+    color: '#666',
+  },
+  statusBadge: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  statusText: {
+    color: '#fff',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  contentContainer: {
+    padding: 16,
+  },
+  headerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  medicineName: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#333',
+    marginRight: 8,
+  },
+  price: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#2196F3',
   },
   category: {
-    fontSize: 14,
+    fontSize: 12,
     color: '#666',
-    marginBottom: 4,
-    fontStyle: 'italic',
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    alignSelf: 'flex-start',
+    marginBottom: 8,
   },
   description: {
     fontSize: 14,
     color: '#666',
-    marginBottom: 4,
+    lineHeight: 20,
+    marginBottom: 12,
   },
-  price: {
+  footerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  quantity: {
+    fontSize: 12,
+    color: '#888',
+  },
+  detailButton: {
+    backgroundColor: '#2196F3',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 16,
+  },
+  detailButtonText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  centerLoader: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  loadingText: {
+    marginTop: 12,
     fontSize: 16,
-    fontWeight: 'bold',
-    color: '#2ecc71',
+    color: '#666',
   },
-  loader: {
-    marginTop: 20,
+  error: {
+    color: '#f44336',
+    textAlign: 'center',
+    padding: 20,
+    fontSize: 16,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 40,
+  },
+  emptyIcon: {
+    fontSize: 48,
+    marginBottom: 16,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
   footerLoader: {
     marginVertical: 20,
   },
-  error: {
-    color: 'red',
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  emptyText: {
-    textAlign: 'center',
-    marginTop: 20,
-    color: '#666',
-  },
-  list: {
-    paddingBottom: 20,
-  },
   modalContainer: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
   },
   modalContent: {
-    width: '80%',
-    backgroundColor: 'white',
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
     padding: 20,
-    borderRadius: 10,
+    maxHeight: '80%',
   },
   modalTitle: {
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: 'bold',
-    marginBottom: 20,
     textAlign: 'center',
+    marginBottom: 20,
+    color: '#333',
   },
   filterLabel: {
-    fontWeight: 'bold',
-    marginTop: 10,
-    marginBottom: 5,
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 8,
+    color: '#333',
   },
   categoryContainer: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    marginBottom: 15,
+    marginBottom: 20,
   },
   categoryButton: {
-    padding: 8,
+    backgroundColor: '#f0f0f0',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
     margin: 4,
-    backgroundColor: '#e0e0e0',
-    borderRadius: 5,
   },
   selectedCategory: {
-    backgroundColor: '#1a9274',
+    backgroundColor: '#2196F3',
+  },
+  categoryButtonText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  selectedCategoryText: {
+    color: '#fff',
   },
   priceInputContainer: {
     flexDirection: 'row',
@@ -417,18 +636,45 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   priceInput: {
-    width: 60,
+    width: 80,
     height: 40,
-    borderColor: '#ccc',
+    borderColor: '#ddd',
     borderWidth: 1,
-    borderRadius: 5,
+    borderRadius: 8,
     paddingHorizontal: 8,
     textAlign: 'center',
-    marginHorizontal: 5,
   },
   slider: {
     flex: 1,
-    height: 40,
+    marginHorizontal: 16,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#f0f0f0',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#666',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  applyButton: {
+    flex: 1,
+    backgroundColor: '#2196F3',
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  applyButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 

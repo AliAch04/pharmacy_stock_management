@@ -1,4 +1,3 @@
-// app/(tabs)/profile.tsx
 import React, { useState, useEffect } from 'react';
 import {
   View,
@@ -21,21 +20,21 @@ import { router } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { account, databases, storage, databaseId, usersCollectionId } from '../../lib/appwrite';
-import { Query, AppwriteException } from 'appwrite';
+import { Query, AppwriteException, ID } from 'appwrite';
 
 const avatarBucketId = 'medicines-images';
-
+const PROJECT_ID = '68424153002403801f6b'; // Votre project ID
 
 interface UserInfo {
   id: string;
   name: string;
   email: string;
   role: string;
-  joinDate: string;
   pharmacyName: string;
   phone: string;
   avatar?: string;
   avatarFileId?: string;
+  joinDate?: string;
 }
 
 const ProfilePage = () => {
@@ -47,7 +46,7 @@ const ProfilePage = () => {
   const [editValue, setEditValue] = useState('');
   const [isUpdating, setIsUpdating] = useState(false);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [avatarError, setAvatarError] = useState(false); // Track avatar loading errors
+  const [avatarError, setAvatarError] = useState(false);
 
   useEffect(() => {
     loadUserData();
@@ -79,8 +78,8 @@ const ProfilePage = () => {
       // Generate avatar URL if we have a file ID
       let avatarUrl = '';
       if (userDoc.avatarFileId) {
-        // FIXED: Use .href instead of .toString() to get the actual URL string
-        avatarUrl = storage.getFilePreview(avatarBucketId, userDoc.avatarFileId).href;
+        // Utiliser votre format d'URL qui fonctionne
+        avatarUrl = `https://fra.cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files/${userDoc.avatarFileId}/view?project=${PROJECT_ID}&mode=admin`;
       }
       
       setUserInfo({
@@ -263,7 +262,7 @@ const ProfilePage = () => {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
-        await uploadAvatar(result.assets[0].uri);
+        await uploadAvatar(result.assets[0]);
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -271,69 +270,82 @@ const ProfilePage = () => {
     }
   };
 
-  const uploadAvatar = async (uri: string) => {
+  const uploadAvatar = async (selectedImage: any) => {
     if (!userInfo) return;
     
     try {
       setIsUploadingAvatar(true);
-      setAvatarError(false); // Reset error state when uploading new avatar
+      setAvatarError(false);
       
-      // Get file info
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) {
-        throw new Error('Selected file does not exist');
+      console.log('Upload avec FormData...');
+      
+      const fileId = ID.unique();
+      const fileName = `avatar_${Date.now()}.jpg`;
+      
+      // Créer FormData
+      const formData = new FormData();
+      formData.append('fileId', fileId);
+      formData.append('file', {
+        uri: selectedImage.uri,
+        type: selectedImage.mimeType || 'image/jpeg',
+        name: fileName,
+      } as any);
+
+      // Faire l'appel direct à l'API Appwrite
+      const response = await fetch(
+        `https://cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files`,
+        {
+          method: 'POST',
+          headers: {
+            'X-Appwrite-Project': PROJECT_ID,
+            // Pas de Content-Type pour FormData, le navigateur le gère
+          },
+          body: formData,
+        }
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`HTTP ${response.status}: ${errorText}`);
       }
 
-      // Read the file as a base64 string
-      const base64 = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      // Get the file extension
-      const fileExt = uri.split('.').pop();
-      const mimeType = `image/${fileExt === 'jpg' || fileExt === 'jpeg' ? 'jpeg' : 'png'}`;
-
-      // Create a blob from base64
-      const blob = await fetch(`data:${mimeType};base64,${base64}`).then(res => res.blob());
-
-      // Create form data
-      const formData = new FormData();
-      formData.append('fileId', 'unique()');
-      formData.append('file', blob as any, `avatar-${Date.now()}.${fileExt}`);
-
-      // Upload to Appwrite storage
-      const uploadResponse = await storage.createFile(
-        avatarBucketId,
-        'unique()',
-        formData
-      );
+      const uploadResult = await response.json();
+      console.log('Upload réussi:', uploadResult);
 
       // Delete previous avatar if exists
       if (userInfo.avatarFileId) {
         try {
-          await storage.deleteFile(avatarBucketId, userInfo.avatarFileId);
+          await fetch(
+            `https://cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files/${userInfo.avatarFileId}`,
+            {
+              method: 'DELETE',
+              headers: {
+                'X-Appwrite-Project': PROJECT_ID,
+              },
+            }
+          );
+          console.log('Ancien avatar supprimé');
         } catch (deleteError) {
           console.warn('Failed to delete old avatar:', deleteError);
         }
       }
 
-      // Get preview URL
-      // FIXED: Use .href to get the actual URL string
-      const avatarUrl = storage.getFilePreview(avatarBucketId, uploadResponse.$id).href;
+      // Generate avatar URL with your working format
+      const avatarUrl = `https://fra.cloud.appwrite.io/v1/storage/buckets/${avatarBucketId}/files/${uploadResult.$id}/view?project=${PROJECT_ID}&mode=admin`;
       
       // Update user document with new avatar file ID
       await databases.updateDocument(
         databaseId,
         usersCollectionId,
         userInfo.id,
-        { avatarFileId: uploadResponse.$id }
+        { avatarFileId: uploadResult.$id }
       );
 
       // Update local state
       setUserInfo({ 
         ...userInfo, 
         avatar: avatarUrl,
-        avatarFileId: uploadResponse.$id
+        avatarFileId: uploadResult.$id
       });
       
       Alert.alert('Success', 'Avatar updated successfully');
@@ -427,7 +439,7 @@ const ProfilePage = () => {
                 <Image 
                   source={{ uri: userInfo.avatar }} 
                   style={styles.avatar} 
-                  onError={() => setAvatarError(true)} // Handle image loading errors
+                  onError={() => setAvatarError(true)}
                 />
               ) : (
                 <View style={styles.avatarPlaceholder}>
@@ -456,11 +468,6 @@ const ProfilePage = () => {
             >
               <Text style={styles.pharmacyName}>{userInfo.pharmacyName}</Text>
               <Ionicons name="create-outline" size={16} color="#667eea" style={styles.editIcon} />
-            </TouchableOpacity>
-
-            <TouchableOpacity style={styles.editProfileButton} onPress={handleEditProfile}>
-              <Ionicons name="create-outline" size={20} color="#667eea" />
-              <Text style={styles.editProfileText}>Edit Profile</Text>
             </TouchableOpacity>
           </View>
 
@@ -669,6 +676,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
+    marginTop:50,
     paddingTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 10,
@@ -800,6 +808,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 5,
+    marginBottom: 100
   },
   infoItem: {
     flexDirection: 'row',
