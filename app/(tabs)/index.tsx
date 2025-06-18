@@ -6,13 +6,10 @@ import {
   Alert,
   TextInput,
   Modal,
-  Button,
-  Platform,
-  ToastAndroid,
-  Image,
-  FlatList,
   ActivityIndicator,
   RefreshControl,
+  FlatList,
+  Image,
   ScrollView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -25,11 +22,10 @@ import { ID, Query } from 'appwrite';
 import { Picker } from '@react-native-picker/picker';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
-
+import { useUser } from '../context/UserContext';
 import { getMedicineImage } from '@/services/images';
 
-
-const LOGS_COLLECTION_ID = 'logs'; // Replace with your actual logs collection ID
+const LOGS_COLLECTION_ID = 'logs';
 
 interface Medicine {
   $id: string;
@@ -37,9 +33,10 @@ interface Medicine {
   description: string;
   price: number | null;
   quantity: number | null;
-  image?: string; // ID de l'image dans le bucket
+  image?: string;
   category: string;
   status?: string;
+  userID: string;
 }
 
 interface FormState {
@@ -48,7 +45,7 @@ interface FormState {
   price: string;
   quantity: string;
   category: string;
-  image?: string; // ID de l'image uploadée
+  image?: string;
 }
 
 interface StockLogForm {
@@ -60,6 +57,9 @@ interface StockLogForm {
 
 export default function InventoryDashboard() {
   const router = useRouter();
+  const { user } = useUser();
+  const [userID, setUserID] = useState<string>('');
+  
   const [medicines, setMedicines] = useState<Medicine[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -70,11 +70,8 @@ export default function InventoryDashboard() {
   const [showFilters, setShowFilters] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Medicine | null>(null);
 
-  // Image upload states
   const [selectedImage, setSelectedImage] = useState<any>(null);
   const [uploadingImage, setUploadingImage] = useState(false);
-
-  // Form state
   const [form, setForm] = useState<FormState>({
     name: '',
     description: '',
@@ -83,16 +80,12 @@ export default function InventoryDashboard() {
     category: '',
     image: '',
   });
-
-  // Stock log form state
   const [stockLogForm, setStockLogForm] = useState<StockLogForm>({
     medicineId: '',
     medicineName: '',
     quantitySold: '',
     notes: '',
   });
-
-  // Filter states
   const [limit, setLimit] = useState(10);
   const [sortField, setSortField] = useState('name');
   const [sortOrder, setSortOrder] = useState('ASC');
@@ -100,21 +93,25 @@ export default function InventoryDashboard() {
   const [quantityFilter, setQuantityFilter] = useState<'all' | 'low' | 'medium' | 'high'>('all');
   const [showDropdown, setShowDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-
   const [imageError, setImageError] = useState(false);
 
+  useEffect(() => {
+    if (user) {
+      setUserID(user.$id);
+      fetchMedicines();
+    } else {
+      router.replace('/login');
+    }
+  }, [user]);
 
-  // Image picker function
   const pickImage = async () => {
     try {
-      // Demander les permissions
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (status !== 'granted') {
         Alert.alert('Permission refusée', 'Nous avons besoin d\'accéder à votre galerie pour sélectionner une image.');
         return;
       }
 
-      // Sélectionner l'image
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: true,
@@ -131,20 +128,14 @@ export default function InventoryDashboard() {
     }
   };
 
-  // Upload image with FormData
   const uploadImageWithFormData = async () => {
-    if (!selectedImage) {
-      return null;
-    }
+    if (!selectedImage) return null;
     
     setUploadingImage(true);
     try {
-      console.log('Upload avec FormData...');
-      
       const fileId = ID.unique();
       const fileName = `medicine_${Date.now()}.jpg`;
       
-      // Créer FormData
       const formData = new FormData();
       formData.append('fileId', fileId);
       formData.append('file', {
@@ -153,14 +144,12 @@ export default function InventoryDashboard() {
         name: fileName,
       } as any);
       
-      // Faire l'appel direct à l'API Appwrite
       const response = await fetch(
         `https://cloud.appwrite.io/v1/storage/buckets/${BUCKET_ID}/files`,
         {
           method: 'POST',
           headers: {
-            'X-Appwrite-Project': '68424153002403801f6b', // Remplacez par votre PROJECT_ID
-            // Pas de Content-Type pour FormData, le navigateur le gère
+            'X-Appwrite-Project': '68424153002403801f6b',
           },
           body: formData,
         }
@@ -172,9 +161,7 @@ export default function InventoryDashboard() {
       }
       
       const result = await response.json();
-      console.log('Upload réussi:', result);
       return result.$id;
-      
     } catch (error) {
       console.error('Erreur upload FormData:', error);
       throw error;
@@ -183,76 +170,16 @@ export default function InventoryDashboard() {
     }
   };
 
-  // Alternative avec base64
-  const uploadImageWithBase64 = async () => {
-    if (!selectedImage) {
-      return null;
-    }
-    
-    setUploadingImage(true);
-    try {
-      console.log('Upload avec base64...');
-      
-      // Lire le fichier en base64
-      const base64 = await FileSystem.readAsStringAsync(selectedImage.uri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-      
-      // Convertir base64 en Uint8Array
-      const binaryString = atob(base64);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-      
-      // Créer un blob
-      const blob = new Blob([bytes], { type: selectedImage.mimeType || 'image/jpeg' });
-      const fileName = `medicine_${Date.now()}.jpg`;
-      const file = new File([blob], fileName, { type: blob.type });
-      
-      // Upload avec Appwrite SDK
-      const uploadResult = await storage.createFile(
-        BUCKET_ID,
-        ID.unique(),
-        file
-      );
-      
-      console.log('Upload réussi:', uploadResult);
-      return uploadResult.$id;
-      
-    } catch (error) {
-      console.error('Erreur upload base64:', error);
-      throw error;
-    } finally {
-      setUploadingImage(false);
-    }
-  };
-
-  // Close dropdown when clicking outside
-  useEffect(() => {
-    const handleOutsideClick = () => {
-      if (showDropdown) {
-        setShowDropdown(false);
-      }
-    };
-    
-    if (showDropdown) {
-      // Add a small delay to prevent immediate closing
-      const timer = setTimeout(() => {
-        // This would normally be handled by a touch outside detector
-        // For React Native, you'd use a TouchableWithoutFeedback wrapper
-      }, 100);
-      return () => clearTimeout(timer);
-    }
-  }, [showDropdown]);
-
   const fetchMedicines = async () => {
     try {
+      if (!userID) return;
+      
       setLoading(true);
       setRefreshing(true);
       
       const queries = [
         Query.limit(limit),
+        Query.equal('userID', userID),
         sortOrder === 'ASC' ? Query.orderAsc(sortField) : Query.orderDesc(sortField)
       ];
 
@@ -289,8 +216,43 @@ export default function InventoryDashboard() {
   };
 
   useEffect(() => {
-    fetchMedicines();
-  }, [limit, sortField, sortOrder, priceFilter, quantityFilter]);
+    if (userID) {
+      fetchMedicines();
+    }
+  }, [userID, limit, sortField, sortOrder, priceFilter, quantityFilter]);
+
+  const createLog = async (
+    medicineId: string,
+    medicineName: string,
+    transactionType: 'sale' | 'add' | 'adjust',
+    quantityChanged: number,
+    previousQuantity: number,
+    newQuantity: number,
+    notes: string = ''
+  ) => {
+    try {
+      await databases.createDocument(
+        DATABASE_ID,
+        LOGS_COLLECTION_ID,
+        ID.unique(),
+        {
+          medicineId,
+          medicineName,
+          transactionType,
+          quantityChanged,
+          previousQuantity,
+          newQuantity,
+          notes,
+          timestamp: new Date().toISOString(),
+          userID: userID,
+          medID: medicineId
+        }
+      );
+      console.log(`Log created for ${transactionType}`);
+    } catch (error) {
+      console.error('Error creating log:', error);
+    }
+  };
 
   const onRefresh = () => {
     fetchMedicines();
@@ -309,7 +271,6 @@ export default function InventoryDashboard() {
             try {
               setIsLoggingOut(true);
               await account.deleteSession('current');
-              showToast('Déconnecté avec succès');
               router.replace('/(auth)/login');
             } catch (error: any) {
               console.error('Logout error:', error);
@@ -323,14 +284,6 @@ export default function InventoryDashboard() {
     );
   };
 
-  const showToast = (message: string) => {
-    if (Platform.OS === 'android') {
-      ToastAndroid.show(message, ToastAndroid.SHORT);
-    } else {
-      Alert.alert('Info', message);
-    }
-  };
-
   const openEditModal = (product: Medicine) => {
     setEditingProduct(product);
     setForm({
@@ -341,7 +294,7 @@ export default function InventoryDashboard() {
       category: product.category || '',
       image: product.image || '',
     });
-    setSelectedImage(null); // Reset selected image
+    setSelectedImage(null);
     setModalVisible(true);
   };
 
@@ -355,7 +308,7 @@ export default function InventoryDashboard() {
       category: '',
       image: '',
     });
-    setSelectedImage(null); // Reset selected image
+    setSelectedImage(null);
     setModalVisible(true);
   };
 
@@ -383,20 +336,15 @@ export default function InventoryDashboard() {
         throw new Error('Le prix et la quantité doivent être positifs');
       }
 
-      let imageId = form.image; // Conserver l'image existante si pas de nouvelle image
-
-      // Upload nouvelle image si sélectionnée
+      let imageId = form.image;
+      
       if (selectedImage) {
         try {
-          // Essayer d'abord FormData, puis base64 en fallback
           imageId = await uploadImageWithFormData();
-          if (!imageId) {
-            imageId = await uploadImageWithBase64();
-          }
         } catch (uploadError) {
           console.error('Erreur upload:', uploadError);
           Alert.alert('Avertissement', 'L\'image n\'a pas pu être uploadée, mais le médicament sera sauvegardé sans image.');
-          imageId = form.image; // Garder l'ancienne image
+          imageId = form.image;
         }
       }
 
@@ -408,27 +356,49 @@ export default function InventoryDashboard() {
         quantity,
         category: form.category.trim(),
         status,
-        image: imageId || '', // Stocker l'ID de l'image
+        image: imageId || '',
+        userID: userID
       };
 
       if (editingProduct) {
-        // Update existing product
+        const previousQuantity = editingProduct.quantity || 0;
+        const quantityChanged = quantity - previousQuantity;
+        
         await databases.updateDocument(
           DATABASE_ID,
           COLLECTION_ID,
           editingProduct.$id,
           payload
         );
-        showToast('Médicament mis à jour');
+        
+        if (quantity !== previousQuantity) {
+          await createLog(
+            editingProduct.$id,
+            form.name.trim(),
+            'adjust',
+            quantityChanged,
+            previousQuantity,
+            quantity,
+            `Ajustement de stock: ${quantityChanged > 0 ? '+' : ''}${quantityChanged} unité(s)`
+          );
+        }
       } else {
-        // Create new product
-        await databases.createDocument(
+        const response = await databases.createDocument(
           DATABASE_ID,
           COLLECTION_ID,
           ID.unique(),
           payload
         );
-        showToast('Médicament ajouté');
+        
+        await createLog(
+          response.$id,
+          form.name.trim(),
+          'add',
+          quantity,
+          0,
+          quantity,
+          'Ajout initial au stock'
+        );
       }
 
       fetchMedicines();
@@ -463,7 +433,6 @@ export default function InventoryDashboard() {
       const previousQuantity = selectedMedicine.quantity;
       const newQuantity = previousQuantity - quantitySold;
 
-      // Update medicine quantity
       await databases.updateDocument(
         DATABASE_ID,
         COLLECTION_ID,
@@ -474,28 +443,16 @@ export default function InventoryDashboard() {
         }
       );
 
-      const now = new Date();
-      const timestampISO = now.toISOString();
-      
-      const logData = {
-        medicineId: stockLogForm.medicineId,
-        medicineName: stockLogForm.medicineName,
-        transactionType: 'sale',
-        quantityChanged: -quantitySold,
-        previousQuantity: previousQuantity,
-        newQuantity: newQuantity,
-        timestamp: timestampISO,
-        notes: stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
-      };
-
-      await databases.createDocument(
-        DATABASE_ID,
-        LOGS_COLLECTION_ID,
-        ID.unique(),
-        logData
+      await createLog(
+        stockLogForm.medicineId,
+        stockLogForm.medicineName,
+        'sale',
+        -quantitySold,
+        previousQuantity,
+        newQuantity,
+        stockLogForm.notes.trim() || `Vente de ${quantitySold} unité(s)`
       );
 
-      showToast(`Vente enregistrée: ${quantitySold} unité(s) de ${stockLogForm.medicineName}`);
       setStockLogModalVisible(false);
       fetchMedicines();
     } catch (error: any) {
@@ -528,7 +485,6 @@ export default function InventoryDashboard() {
     return 'text-green-500';
   };
 
-  // Get image preview URL
   const getImagePreview = (imageId: string | undefined) => {
     if (!imageId) return null;
     try {
@@ -539,7 +495,6 @@ export default function InventoryDashboard() {
     }
   };
 
-  // Get low stock medicines for notifications
   const getLowStockMedicines = () => {
     return medicines.filter(medicine => 
       medicine.quantity !== null && 
@@ -563,7 +518,6 @@ export default function InventoryDashboard() {
       style={{ elevation: 2 }}
     >
       <View className="flex-row">
-        {/* Image preview */}
         {getMedicineImage(item.image) ? (
           <Image 
             source={getMedicineImage(item.image)}
@@ -659,7 +613,7 @@ export default function InventoryDashboard() {
               style={{ zIndex: 9998, position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }}
             />
             
-            {/* Dropdown content avec position absolue par rapport à l'écran */}
+            {/* Dropdown content */}
             <View 
               className="absolute bg-white rounded-xl shadow-lg border border-gray-200 w-56"
               style={{ 
@@ -797,7 +751,7 @@ export default function InventoryDashboard() {
                 { key: 'medium', label: '$10-$50' },
                 { key: 'high', label: '> $50' }
               ].map((filter) => (
-                                <TouchableOpacity
+                <TouchableOpacity
                   key={filter.key}
                   className={`px-3 py-2 mr-2 mb-2 rounded-lg border ${
                     priceFilter === filter.key 
@@ -933,193 +887,179 @@ export default function InventoryDashboard() {
                 tintColor="#3B82F6"
               />
             }
-            // ListFooterComponent={
-            //   <TouchableOpacity
-            //     className="mx-4 mb-8 bg-blue-500 p-4 rounded-xl items-center"
-            //     onPress={openAddModal}
-            //   >
-            //     <Text className="text-white font-bold text-lg">
-            //       Ajouter un nouveau médicament
-            //     </Text>
-            //   </TouchableOpacity>
-            // }
           />
         )}
       </View>
 
-     
       {/* Add/Edit Medicine Modal */}
-<Modal
-  animationType="slide"
-  transparent={false}
-  visible={modalVisible}
-  onRequestClose={() => setModalVisible(false)}
->
-  <ScrollView className="flex-1 bg-white px-6 py-4" keyboardShouldPersistTaps="handled">
-    {/* Header */}
-    <View className="flex-row justify-between items-center mb-8">
-      <Text className="text-2xl font-semibold text-gray-800">
-        {editingProduct ? 'Modifier médicament' : 'Ajouter médicament'}
-      </Text>
-      <TouchableOpacity onPress={() => setModalVisible(false)} className="p-1">
-        <Ionicons name="close" size={26} color="#6B7280" />
-      </TouchableOpacity>
-    </View>
-
-    {/* Image Upload */}
-    <View className="mb-8">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Image du médicament</Text>
-      <TouchableOpacity
-        className="w-full h-48 bg-gray-100 rounded-2xl border border-dashed border-gray-300 items-center justify-center overflow-hidden"
-        onPress={pickImage}
+      <Modal
+        animationType="slide"
+        transparent={false}
+        visible={modalVisible}
+        onRequestClose={() => setModalVisible(false)}
       >
-        {selectedImage ? (
-          <Image
-            source={{ uri: selectedImage.uri }}
-            className="w-full h-full rounded-2xl"
-            resizeMode="cover"
-          />
-        ) : editingProduct?.image ? (
-          <Image
-            source={{ uri: getImagePreview(editingProduct.image) }}
-            className="w-full h-full rounded-2xl"
-            resizeMode="cover"
-          />
-        ) : (
-          <View className="items-center">
-            <Ionicons name="image" size={48} color="#9CA3AF" />
-            <Text className="text-gray-500 mt-2">Ajouter une image</Text>
+        <ScrollView className="flex-1 bg-white px-6 py-4" keyboardShouldPersistTaps="handled">
+          <View className="flex-row justify-between items-center mb-8">
+            <Text className="text-2xl font-semibold text-gray-800">
+              {editingProduct ? 'Modifier médicament' : 'Ajouter médicament'}
+            </Text>
+            <TouchableOpacity onPress={() => setModalVisible(false)} className="p-1">
+              <Ionicons name="close" size={26} color="#6B7280" />
+            </TouchableOpacity>
           </View>
-        )}
-      </TouchableOpacity>
 
-      {uploadingImage && (
-        <View className="flex-row items-center mt-2">
-          <ActivityIndicator size="small" color="#3B82F6" />
-          <Text className="ml-2 text-blue-500">Upload en cours...</Text>
-        </View>
-      )}
-    </View>
+          {/* Image Upload */}
+          <View className="mb-8">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Image du médicament</Text>
+            <TouchableOpacity
+              className="w-full h-48 bg-gray-100 rounded-2xl border border-dashed border-gray-300 items-center justify-center overflow-hidden"
+              onPress={pickImage}
+            >
+              {selectedImage ? (
+                <Image
+                  source={{ uri: selectedImage.uri }}
+                  className="w-full h-full rounded-2xl"
+                  resizeMode="cover"
+                />
+              ) : editingProduct?.image ? (
+                <Image
+                  source={{ uri: getImagePreview(editingProduct.image) }}
+                  className="w-full h-full rounded-2xl"
+                  resizeMode="cover"
+                />
+              ) : (
+                <View className="items-center">
+                  <Ionicons name="image" size={48} color="#9CA3AF" />
+                  <Text className="text-gray-500 mt-2">Ajouter une image</Text>
+                </View>
+              )}
+            </TouchableOpacity>
 
-    {/* Form Fields */}
-    <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Nom du médicament</Text>
-      <TextInput
-        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
-        placeholder="Paracétamol 500mg"
-        value={form.name}
-        onChangeText={(text) => setForm({ ...form, name: text })}
-      />
-    </View>
 
-    <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Description</Text>
-      <TextInput
-        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 h-24 text-top"
-        placeholder="Description du médicament..."
-        value={form.description}
-        onChangeText={(text) => setForm({ ...form, description: text })}
-        multiline
-      />
-    </View>
+            {uploadingImage && (
+              <View className="flex-row items-center mt-2">
+                <ActivityIndicator size="small" color="#3B82F6" />
+                <Text className="ml-2 text-blue-500">Upload en cours...</Text>
+              </View>
+            )}
+          </View>
 
-    <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire</Text>
-      <TextInput
-        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
-        placeholder="9.99"
-        value={form.price}
-        onChangeText={(text) => setForm({ ...form, price: text })}
-        keyboardType="decimal-pad"
-      />
-    </View>
+          {/* Form Fields */}
+          <View className="mb-5">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Nom du médicament</Text>
+            <TextInput
+              className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+              placeholder="Paracétamol 500mg"
+              value={form.name}
+              onChangeText={(text) => setForm({ ...form, name: text })}
+            />
+          </View>
 
-    <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Quantité en stock</Text>
-      <TextInput
-        className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
-        placeholder="50"
-        value={form.quantity}
-        onChangeText={(text) => setForm({ ...form, quantity: text })}
-        keyboardType="number-pad"
-      />
-    </View>
+          <View className="mb-5">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Description</Text>
+            <TextInput
+              className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200 h-24 text-top"
+              placeholder="Description du médicament..."
+              value={form.description}
+              onChangeText={(text) => setForm({ ...form, description: text })}
+              multiline
+            />
+          </View>
 
-    {/* Catégorie - Nouveau Picker */}
-    <View className="mb-5">
-      <Text className="text-sm text-gray-600 mb-2 font-medium">Catégorie</Text>
-      <View className="bg-gray-50 rounded-xl border border-gray-200">
-        <Picker
-          selectedValue={form.category}
-          onValueChange={(itemValue) => setForm({ ...form, category: itemValue })}
-        >
-          <Picker.Item label="Sélectionner une catégorie" value="" />
-          <Picker.Item label="Antidouleur" value="Antidouleur" />
-          <Picker.Item label="Antibiotique" value="Antibiotique" />
-          <Picker.Item label="Antihistaminique" value="Antihistaminique" />
-          <Picker.Item label="Anti-inflammatoire" value="Anti-inflammatoire" />
-          <Picker.Item label="Antipyrétique" value="Antipyrétique" />
-          <Picker.Item label="Vitamines" value="Vitamines" />
-          <Picker.Item label="Autre" value="Autre" />
-        </Picker>
-      </View>
-    </View>
+          <View className="mb-5">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Prix unitaire ($)</Text>
+            <TextInput
+              className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+              placeholder="9.99"
+              value={form.price}
+              onChangeText={(text) => setForm({ ...form, price: text })}
+              keyboardType="decimal-pad"
+            />
+          </View>
 
-    {/* Buttons Container */}
-    <View className="flex-row justify-center mb-20">
-  {/* Save Button */}
-  <TouchableOpacity
-    className={`bg-blue-600 flex-row items-center justify-center p-4 rounded-xl mr-3 ${uploadingImage ? 'opacity-60' : 'opacity-100'}`}
-    onPress={handleSave}
-    disabled={uploadingImage}
-  >
-    <Ionicons name="save-outline" size={18} color="white" />
-        <Text className="text-white font-bold text-base ml-2">
-          {editingProduct ? 'Mettre à jour' : 'Ajouter'}
-        </Text>
+          <View className="mb-5">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Quantité en stock</Text>
+            <TextInput
+              className="bg-gray-50 px-4 py-3 rounded-xl border border-gray-200"
+              placeholder="50"
+              value={form.quantity}
+              onChangeText={(text) => setForm({ ...form, quantity: text })}
+              keyboardType="number-pad"
+            />
+          </View>
 
-  </TouchableOpacity>
+          {/* Category */}
+          <View className="mb-5">
+            <Text className="text-sm text-gray-600 mb-2 font-medium">Catégorie</Text>
+            <View className="bg-gray-50 rounded-xl border border-gray-200">
+              <Picker
+                selectedValue={form.category}
+                onValueChange={(itemValue) => setForm({ ...form, category: itemValue })}
+              >
+                <Picker.Item label="Sélectionner une catégorie" value="" />
+                <Picker.Item label="Antidouleur" value="Antidouleur" />
+                <Picker.Item label="Antibiotique" value="Antibiotique" />
+                <Picker.Item label="Antihistaminique" value="Antihistaminique" />
+                <Picker.Item label="Anti-inflammatoire" value="Anti-inflammatoire" />
+                <Picker.Item label="Antipyrétique" value="Antipyrétique" />
+                <Picker.Item label="Vitamines" value="Vitamines" />
+                <Picker.Item label="Autre" value="Autre" />
+              </Picker>
+            </View>
+          </View>
 
-  {/* Delete Button */}
-  {editingProduct && (
-    <TouchableOpacity
-      className="bg-red-600 flex-row items-center justify-center p-5 rounded-xl ml-3"
-      onPress={() =>
-            Alert.alert(
-              'Supprimer',
-              'Êtes-vous sûr de vouloir supprimer ce médicament ?',
-              [
-                { text: 'Annuler', style: 'cancel' },
-                {
-                  text: 'Supprimer',
-                  style: 'destructive',
-                  onPress: async () => {
-                    try {
-                      await databases.deleteDocument(
-                        DATABASE_ID,
-                        COLLECTION_ID,
-                        editingProduct.$id
-                      );
-                      showToast('Médicament supprimé');
-                      fetchMedicines();
-                      setModalVisible(false);
-                    } catch (error) {
-                      Alert.alert('Erreur', 'Échec de la suppression');
-                    }
-                  }
+          {/* Buttons Container */}
+          <View className="flex-row justify-center mb-20">
+            {/* Save Button */}
+            <TouchableOpacity
+              className={`bg-blue-600 flex-row items-center justify-center p-4 rounded-xl mr-3 ${uploadingImage ? 'opacity-60' : 'opacity-100'}`}
+              onPress={handleSave}
+              disabled={uploadingImage}
+            >
+              <Ionicons name="save-outline" size={18} color="white" />
+              <Text className="text-white font-bold text-base ml-2">
+                {editingProduct ? 'Mettre à jour' : 'Ajouter'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Delete Button */}
+            {editingProduct && (
+              <TouchableOpacity
+                className="bg-red-600 flex-row items-center justify-center p-5 rounded-xl ml-3"
+                onPress={() =>
+                  Alert.alert(
+                    'Supprimer',
+                    'Êtes-vous sûr de vouloir supprimer ce médicament ?',
+                    [
+                      { text: 'Annuler', style: 'cancel' },
+                      {
+                        text: 'Supprimer',
+                        style: 'destructive',
+                        onPress: async () => {
+                          try {
+                            await databases.deleteDocument(
+                              DATABASE_ID,
+                              COLLECTION_ID,
+                              editingProduct.$id
+                            );
+                            fetchMedicines();
+                            setModalVisible(false);
+                          } catch (error) {
+                            Alert.alert('Erreur', 'Échec de la suppression');
+                          }
+                        }
+                      }
+                    ]
+                  )
                 }
-              ]
-            )
-          }
-        >
-          <Ionicons name="trash-outline" size={18} color="white" />
-          <Text className="text-white font-bold text-base ml-2">Supprimer</Text>
-    </TouchableOpacity>
-  )}
-</View>
-  </ScrollView>
-</Modal>
-
+              >
+                <Ionicons name="trash-outline" size={18} color="white" />
+                <Text className="text-white font-bold text-base ml-2">Supprimer</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </ScrollView>
+      </Modal>
 
       {/* Stock Log Modal */}
       <Modal

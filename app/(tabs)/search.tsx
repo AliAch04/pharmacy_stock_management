@@ -14,6 +14,10 @@ import {
 } from 'react-native';
 import Slider from '@react-native-community/slider';
 import { getMedicines, getFilePreview, getCategories } from '@/services/medicines';
+import { account, databases, databaseId, usersCollectionId } from '@/lib/appwrite';
+import { Query } from 'appwrite';
+
+const { width: screenWidth } = Dimensions.get('window');
 
 const { width: screenWidth } = Dimensions.get('window');
 
@@ -34,8 +38,45 @@ const Search = () => {
   const [sortOrder, setSortOrder] = useState('ASC');
   const [categories, setCategories] = useState([]);
   const [imageErrors, setImageErrors] = useState({});
+  const [currentUserID, setCurrentUserID] = useState<string | null>(null);
+  const [userLoading, setUserLoading] = useState(true); // Add loading state for user
 
   const limit = 10;
+
+  // Fetch current user ID on component mount
+  useEffect(() => {
+    const fetchCurrentUser = async () => {
+      try {
+        setUserLoading(true);
+        const user = await account.get();
+        console.log('Current user email:', user.email); // Debug log
+        
+        const response = await databases.listDocuments(
+          databaseId,
+          usersCollectionId,
+          [Query.equal('email', user.email)]
+        );
+        
+        console.log('User query response:', response); // Debug log
+        
+        if (response.documents.length > 0) {
+          const userID = response.documents[0].userId;
+          console.log('Found user ID:', userID); // Debug log
+          setCurrentUserID(userID);
+        } else {
+          console.log('No user found with email:', user.email);
+          setError('Utilisateur non trouvé. Veuillez vous reconnecter.');
+        }
+      } catch (error) {
+        console.error('Failed to get current user:', error);
+        setError('Erreur lors de la récupération de l\'utilisateur.');
+      } finally {
+        setUserLoading(false);
+      }
+    };
+
+    fetchCurrentUser();
+  }, []);
 
   // Fonction pour construire l'URL de l'image
   const getImageUrl = (imageId) => {
@@ -51,9 +92,10 @@ const Search = () => {
     }));
   };
 
-  // Fetch categories on mount
   useEffect(() => {
     const fetchCategories = async () => {
+      if (!currentUserID) return; // Wait for user ID
+      
       try {
         const cats = await getCategories();
         setCategories(cats);
@@ -61,11 +103,21 @@ const Search = () => {
         console.error('Error fetching categories:', err);
       }
     };
-    fetchCategories();
-  }, []);
+    
+    if (currentUserID) {
+      fetchCategories();
+    }
+  }, [currentUserID]); // Depend on currentUserID
 
   // Search with debounce
   const fetchMedicines = useCallback(async (reset = false) => {
+    console.log('fetchMedicines called with userID:', currentUserID); // Debug log
+    
+    if (!currentUserID) {
+      console.log('No user ID available, skipping search');
+      return; // Don't search without user ID
+    }
+    
     if (reset) {
       setPage(0);
       setMedicines([]);
@@ -79,15 +131,26 @@ const Search = () => {
       setLoading(true);
       const currentOffset = reset ? 0 : page * limit;
       
+      console.log('Searching with filters:', {
+        searchTerm,
+        userID: currentUserID,
+        ...filters
+      }); // Debug log
+      
       const response = await getMedicines({
         searchTerm,
         limit,
         offset: currentOffset,
-        filters,
+        filters: {
+          ...filters,
+          userID: currentUserID  // ADD USER ID FILTER
+        },
         sortField,
         sortOrder
       });
-
+      
+      console.log('Search response:', response); // Debug log
+      
       if (reset) {
         setMedicines(response.documents);
       } else {
@@ -104,21 +167,31 @@ const Search = () => {
     } finally {
       setLoading(false);
     }
-  }, [searchTerm, page, filters, sortField, sortOrder, hasMore]);
+  }, [currentUserID, searchTerm, page, filters, sortField, sortOrder, hasMore]);
 
+  // Only start searching after user ID is available
   useEffect(() => {
+    if (!currentUserID || userLoading) return; // Don't search while loading user
+    
     const timer = setTimeout(() => {
       fetchMedicines(true);
     }, 500);
 
     return () => clearTimeout(timer);
-  }, [searchTerm, filters, sortField, sortOrder]);
+  }, [currentUserID, searchTerm, filters, sortField, sortOrder]); // Remove fetchMedicines from deps to avoid infinite loop
 
   const loadMore = () => {
-    if (!loading && hasMore) {
+    if (!loading && hasMore && currentUserID) {
       setPage(prev => prev + 1);
     }
   };
+
+  // Add useEffect for page changes
+  useEffect(() => {
+    if (page > 0 && currentUserID) {
+      fetchMedicines(false);
+    }
+  }, [page]);
 
   const toggleSortOrder = () => {
     setSortOrder(prev => prev === 'ASC' ? 'DESC' : 'ASC');
@@ -183,6 +256,28 @@ const Search = () => {
     );
   };
 
+  // Show loading while fetching user
+  if (userLoading) {
+    return (
+      <View style={styles.centerLoader}>
+        <ActivityIndicator size="large" color="#2196F3" />
+        <Text style={styles.loadingText}>Chargement...</Text>
+      </View>
+    );
+  }
+
+  // Show error if no user ID found
+  if (!currentUserID && !userLoading) {
+    return (
+      <View style={styles.centerLoader}>
+        <Text style={styles.error}>
+          Impossible de charger votre profil. Veuillez vous reconnecter.
+        </Text>
+      </View>
+    );
+  }
+
+
   return (
     <View style={styles.container}>
       <View style={styles.searchContainer}>
@@ -246,6 +341,12 @@ const Search = () => {
               <Text style={styles.emptyText}>
                 {searchTerm ? 'Aucun médicament trouvé' : 'Recherchez des médicaments...'}
               </Text>
+
+              {/* Debug info - remove in production */}
+              <Text style={styles.debugText}>
+                User ID: {currentUserID ? 'Found' : 'Not found'}
+              </Text>
+
             </View>
           }
           onEndReached={loadMore}
@@ -580,6 +681,12 @@ const styles = StyleSheet.create({
     color: '#666',
     textAlign: 'center',
   },
+  debugText: {
+    fontSize: 12,
+    color: '#999',
+    marginTop: 8,
+  },
+
   footerLoader: {
     marginVertical: 20,
   },

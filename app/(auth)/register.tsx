@@ -13,8 +13,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
-import { account, ID, databases, databaseId, usersCollectionId } from '../../lib/appwrite';
-
+import { account, ID, databases, databaseId, usersCollectionId, Permission, Role } from '../../lib/appwrite';
 export default function RegisterPage() {
   const router = useRouter();
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
@@ -23,64 +22,63 @@ export default function RegisterPage() {
   const handleChange = (field: string, value: string) =>
     setForm(prev => ({ ...prev, [field]: value }));
 
-  const handleRegister = async () => {
-    const { name, email, password, confirm } = form;
+const handleRegister = async () => {
+  const { name, email, password, confirm } = form;
 
-    if (!name || !email || !password || !confirm) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-    if (password !== confirm) {
-      Alert.alert('Error', 'Passwords do not match');
-      return;
-    }
-    if (password.length < 6) {
-      Alert.alert('Error', 'Password too short');
-      return;
-    }
+  if (!name || !email || !password || !confirm) {
+    Alert.alert('Error', 'Please fill in all fields');
+    return;
+  }
+  if (password !== confirm) {
+    Alert.alert('Error', 'Passwords do not match');
+    return;
+  }
+  if (password.length < 6) {
+    Alert.alert('Error', 'Password too short');
+    return;
+  }
 
+  try {
+    setLoading(true);
+
+    // 1. Delete existing session (if any)
     try {
-      setLoading(true);
+      await account.deleteSession('current');
+    } catch (sessionError) {
+      console.log('No existing session to delete');
+    }
 
-      // 1. First, delete any existing session to avoid conflicts
-      try {
-        await account.deleteSession('current');
-      } catch (sessionError) {
-        // If no session exists, this will throw an error, which is fine
-        console.log('No existing session to delete');
+    // 2. Create account
+    const user = await account.create(ID.unique(), email, password, name);
+    if (!user) throw new Error('Failed to create account');
+
+    // 3. Create document in users collection (with string permissions)
+    await databases.createDocument(
+      databaseId,
+      usersCollectionId,
+      ID.unique(),
+      {
+        userId: user.$id,
+        name,
+        email,
       }
 
-      // 2. Create account
-      const user = await account.create(ID.unique(), email, password, name);
-      if (!user) throw new Error('Failed to create account');
+    );
 
-      // 3. Create document in users collection
-      await databases.createDocument(
-        databaseId,
-        usersCollectionId,
-        ID.unique(),
-        {
-          userId: user.$id,
-          name,
-          email
-        }
-      );
+    // 4. Create session
+    await account.createEmailPasswordSession(email, password);
 
-      // 4. Create new session after account creation
-      await account.createEmailPasswordSession(email, password);
-
-      setLoading(false);
-      Alert.alert('Success', 'Account created successfully!');
-
-      // 5. Redirect to home
-      router.replace('/(tabs)');
-    } catch (error: any) {
-      setLoading(false);
-      console.error('Registration failed:', error);
-      Alert.alert('Registration Error', error.message || 'Something went wrong');
-    }
-  };
-
+    setLoading(false);
+    Alert.alert('Success', 'Account created successfully!');
+    
+    // 5. Redirect to home
+    router.replace('/(auth)/login');
+  } catch (error: any) {
+    setLoading(false);
+    Alert.alert('Registration Error', error.message || 'Something went wrong');
+    console.error('Registration failed:', error);
+  }
+};
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor="#667eea" />

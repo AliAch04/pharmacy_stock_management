@@ -39,7 +39,10 @@ export default function LoginPage() {
       
       
       // 4. Redirect to home - using push instead of replace to allow back navigation if needed
-      router.push('/(tabs)');
+      router.replace({
+      pathname: '/(tabs)',
+      params: { userID: currentUser.$id } // Pass the user ID
+});
       
     } catch (error: any) {
       setLoading(false);

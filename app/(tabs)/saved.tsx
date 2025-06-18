@@ -17,6 +17,10 @@ import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
 import { captureRef } from 'react-native-view-shot';
+// ... existing imports ...
+import { account } from '../../lib/appwrite';
+import { router } from 'expo-router';
+import { AppwriteException } from 'appwrite';
 
 const client = new Client();
 client.setEndpoint('https://cloud.appwrite.io/v1').setProject('68424153002403801f6b');
@@ -50,6 +54,8 @@ export default function AnalyticsDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [selectedPeriod, setSelectedPeriod] = useState('7days');
   const [exportingPDF, setExportingPDF] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+  const [userID, setUserID] = useState(null);
   
   // Refs for capturing charts
   const trendChartRef = useRef();
@@ -61,15 +67,25 @@ export default function AnalyticsDashboard() {
       setLoading(true);
       
       const dateLimit = getDateLimit();
+
+      const queries = [
+        Query.greaterThanEqual('timestamp', dateLimit),
+        Query.orderDesc('timestamp'),
+        Query.limit(500)
+      ];
+      
+      // Add user ID filter if available
+      if (userID) {
+        queries.push(Query.equal('userID', userID));
+      }
+
       const logsResponse = await databases.listDocuments(
         DATABASE_ID, 
         LOGS_COLLECTION_ID,
-        [
-          Query.greaterThanEqual('timestamp', dateLimit),
-          Query.orderDesc('timestamp'),
-          Query.limit(500)
-        ]
+        queries
       );
+      
+
       setLogs(logsResponse.documents);
     } catch (error) {
       console.error('Erreur de récupération des données:', error);
@@ -78,6 +94,38 @@ export default function AnalyticsDashboard() {
       setLoading(false);
     }
   };
+
+  const loadCurrentUser = async () => {
+    try {
+      const user = await account.get();
+      setCurrentUser(user);
+      setUserID(user.$id);
+    } catch (error) {
+      console.error('Error loading user:', error);
+      
+      let errorMessage = 'Failed to load user information.';
+      if (error instanceof AppwriteException) {
+        console.error('Appwrite error:', error.code, error.type, error.response);
+        errorMessage = `Appwrite error: ${error.message || error.code}`;
+      } else if (error.code === 401) {
+        errorMessage = 'Please log in again.';
+        router.replace('/login');
+        return;
+      }
+      
+      Alert.alert('Error', errorMessage);
+    }
+  };
+
+  useEffect(() => {
+    loadCurrentUser();
+  }, []);
+
+  useEffect(() => {
+    if (userID) {
+      fetchData();
+    }
+  }, [selectedPeriod, userID]);
 
   const getDateLimit = () => {
     const now = new Date();
@@ -93,17 +141,14 @@ export default function AnalyticsDashboard() {
     }
   };
 
-  useEffect(() => {
-    fetchData();
-  }, [selectedPeriod]);
-
   const onRefresh = async () => {
     setRefreshing(true);
     await fetchData();
     setRefreshing(false);
   };
 
-  // Statistics functions based on logs
+  // NEW: All statistics functions now based on logs only
+
   const getTotalTransactions = () => logs.length;
   
   const getUniqueMedicines = () => {
@@ -166,7 +211,7 @@ export default function AnalyticsDashboard() {
     }));
   };
 
-  // FIXED: Updated function to respect selected period
+
   const getActivityTrend = () => {
     // Determine time range based on selected period
     const daysBack = selectedPeriod === '7days' ? 7 : 
@@ -291,384 +336,573 @@ export default function AnalyticsDashboard() {
       .slice(0, 10);
   };
 
-  // PDF Export Function (updated for logs data)
-  const exportToPDF = async () => {
+// Enhanced PDF Export Function with beautiful styling
+const exportToPDF = async () => {
+  try {
+    setExportingPDF(true);
+    
+    // Capture chart images
+    let trendChartImage = '';
+    let topMedicinesChartImage = '';
+    let transactionTypeChartImage = '';
+    
     try {
-      setExportingPDF(true);
-      
-      // Capture chart images
-      let trendChartImage = '';
-      let topMedicinesChartImage = '';
-      let transactionTypeChartImage = '';
-      
-      try {
-        if (trendChartRef.current) {
-          const trendUri = await captureRef(trendChartRef.current, {
-            format: 'png',
-            quality: 0.8,
-          });
-          trendChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(trendUri, { encoding: 'base64' })}`;
-        }
-        
-        if (topMedicinesChartRef.current) {
-          const topMedicinesUri = await captureRef(topMedicinesChartRef.current, {
-            format: 'png',
-            quality: 0.8,
-          });
-          topMedicinesChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(topMedicinesUri, { encoding: 'base64' })}`;
-        }
-        
-        if (transactionTypeChartRef.current) {
-          const transactionTypeUri = await captureRef(transactionTypeChartRef.current, {
-            format: 'png',
-            quality: 0.8,
-          });
-          transactionTypeChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(transactionTypeUri, { encoding: 'base64' })}`;
-        }
-      } catch (chartError) {
-        console.log('Chart capture error:', chartError);
+      if (trendChartRef.current) {
+        const trendUri = await captureRef(trendChartRef.current, {
+          format: 'png',
+          quality: 0.8,
+        });
+        trendChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(trendUri, { encoding: 'base64' })}`;
       }
+      
+      if (topProductsChartRef.current) {
+        const topMedicinesUri = await captureRef(topProductsChartRef.current, {
+          format: 'png',
+          quality: 0.8,
+        });
+        topMedicinesChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(topMedicinesUri, { encoding: 'base64' })}`;
+      }
+      
+      if (categoryChartRef.current) {
+        const transactionTypeUri = await captureRef(categoryChartRef.current, {
+          format: 'png',
+          quality: 0.8,
+        });
+        transactionTypeChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(transactionTypeUri, { encoding: 'base64' })}`;
 
-      // Get current date
-      const currentDate = new Date().toLocaleDateString('fr-FR', {
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit'
-      });
+      }
+    } catch (chartError) {
+      console.log('Chart capture error:', chartError);
+    }
 
-      const periodLabels = {
-        '7days': '7 derniers jours',
-        '30days': '30 derniers jours',
-        '3months': '3 derniers mois'
-      };
+    // Get current date
+    const currentDate = new Date().toLocaleDateString('fr-FR', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
 
-      // Generate HTML content
-      const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <title>Rapport d'Analyse - Gestion Médicaments</title>
-          <style>
-            body {
-              font-family: 'Helvetica', Arial, sans-serif;
-              margin: 0;
-              padding: 20px;
-              background: #f8f9fa;
-              color: #333;
-            }
-            .header {
-              text-align: center;
-              background: linear-gradient(135deg, #3B82F6, #1E40AF);
-              color: white;
-              padding: 30px;
-              border-radius: 10px;
-              margin-bottom: 30px;
-            }
-            .header h1 {
-              margin: 0;
-              font-size: 28px;
-              font-weight: bold;
-            }
-            .header p {
-              margin: 10px 0 0 0;
-              opacity: 0.9;
-              font-size: 14px;
-            }
-            .stats-grid {
-              display: grid;
-              grid-template-columns: repeat(2, 1fr);
-              gap: 20px;
-              margin-bottom: 30px;
-            }
-            .stat-card {
-              background: white;
-              padding: 20px;
-              border-radius: 10px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-              border-left: 4px solid #3B82F6;
-            }
-            .stat-card h3 {
-              margin: 0 0 10px 0;
-              color: #666;
-              font-size: 14px;
-              text-transform: uppercase;
-              letter-spacing: 0.5px;
-            }
-            .stat-card .value {
-              font-size: 32px;
-              font-weight: bold;
-              color: #333;
-              margin: 0;
-            }
-            .stat-card .subtitle {
-              color: #888;
-              font-size: 12px;
-              margin-top: 5px;
-            }
-            .chart-section {
-              background: white;
-              padding: 25px;
-              border-radius: 10px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-              margin-bottom: 25px;
-            }
-            .chart-section h2 {
-              margin: 0 0 20px 0;
-              color: #333;
-              font-size: 20px;
-              border-bottom: 2px solid #3B82F6;
-              padding-bottom: 10px;
-            }
-            .chart-image {
-              width: 100%;
-              max-width: 600px;
-              height: auto;
-              display: block;
-              margin: 0 auto;
-              border-radius: 8px;
-            }
-            .logs-table {
-              width: 100%;
-              border-collapse: collapse;
-              margin-top: 15px;
-            }
-            .logs-table th,
-            .logs-table td {
-              padding: 12px;
-              text-align: left;
-              border-bottom: 1px solid #eee;
-            }
-            .logs-table th {
-              background: #f8f9fa;
-              font-weight: bold;
-              color: #333;
-            }
-            .logs-table tr:hover {
-              background: #f8f9fa;
-            }
-            .alert-section {
-              background: #FEF2F2;
-              border: 1px solid #FECACA;
-              border-left: 4px solid #EF4444;
-              padding: 20px;
-              border-radius: 10px;
-              margin-bottom: 25px;
-            }
-            .alert-section h3 {
-              color: #DC2626;
-              margin: 0 0 10px 0;
-              font-size: 18px;
-            }
-            .alert-section p {
-              color: #7F1D1D;
-              margin: 5px 0;
-            }
-            .footer {
-              text-align: center;
-              margin-top: 40px;
-              padding: 20px;
-              background: white;
-              border-radius: 10px;
-              box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-            }
-            .footer p {
-              margin: 0;
-              color: #666;
-              font-size: 12px;
-            }
-            .low-stock {
-              color: #EF4444;
-              font-weight: bold;
-            }
-            .good-stock {
-              color: #10B981;
-            }
-            .sale-transaction {
-              color: #EF4444;
-            }
-            .restock-transaction {
-              color: #10B981;
-            }
-            @media print {
-              body { background: white; }
-              .chart-section, .stat-card, .footer { 
-                box-shadow: none; 
-                border: 1px solid #ddd;
-              }
-            }
-          </style>
-        </head>
-        <body>
+    const periodLabels = {
+      '7days': '7 derniers jours',
+      '30days': '30 derniers jours',
+      '3months': '3 derniers mois'
+    };
+
+    // Generate HTML content with enhanced styling
+    const htmlContent = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Rapport d'Analyse - Gestion Médicaments</title>
+        <style>
+          * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+          }
+          
+          body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            background: #f8fafc;
+            padding: 20px;
+          }
+          
+          .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+          }
+          
+          .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+          }
+          
+          .header::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: url('data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><defs><pattern id="grain" width="100" height="100" patternUnits="userSpaceOnUse"><circle cx="20" cy="20" r="1" fill="rgba(255,255,255,0.1)"/><circle cx="80" cy="40" r="0.8" fill="rgba(255,255,255,0.08)"/><circle cx="40" cy="80" r="1.2" fill="rgba(255,255,255,0.06)"/></pattern></defs><rect width="100" height="100" fill="url(%23grain)"/></svg>') repeat;
+            opacity: 0.3;
+          }
+          
+          .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            position: relative;
+            z-index: 1;
+          }
+          
+          .header p {
+            font-size: 16px;
+            opacity: 0.9;
+            position: relative;
+            z-index: 1;
+          }
+          
+          .content {
+            padding: 30px;
+          }
+          
+          .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+          }
+          
+          .stat-card {
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            border: 1px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+          }
+          
+          .stat-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 4px;
+            background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+          }
+          
+          .stat-card h3 {
+            font-size: 14px;
+            color: #64748b;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-weight: 600;
+          }
+          
+          .stat-card .value {
+            font-size: 32px;
+            font-weight: 800;
+            margin-bottom: 4px;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+          }
+          
+          .stat-card .subtitle {
+            font-size: 12px;
+            color: #64748b;
+            font-weight: 500;
+          }
+          
+          .alert-section {
+            background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%);
+            border: 1px solid #fca5a5;
+            border-left: 5px solid #ef4444;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 30px;
+          }
+          
+          .alert-section h3 {
+            color: #dc2626;
+            font-size: 18px;
+            margin-bottom: 10px;
+            font-weight: 700;
+          }
+          
+          .alert-section p {
+            color: #7f1d1d;
+            margin-bottom: 8px;
+          }
+          
+          .chart-section {
+            margin-bottom: 40px;
+            background: white;
+            border-radius: 12px;
+            border: 1px solid #e2e8f0;
+            overflow: hidden;
+          }
+          
+          .chart-section h2 {
+            background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%);
+            color: #1e293b;
+            font-size: 20px;
+            font-weight: 700;
+            padding: 20px;
+            margin: 0;
+            border-bottom: 1px solid #e2e8f0;
+          }
+          
+          .chart-content {
+            padding: 20px;
+          }
+          
+          .chart-image {
+            width: 100%;
+            height: auto;
+            border-radius: 8px;
+            margin-bottom: 15px;
+          }
+          
+          .logs-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+            font-size: 14px;
+          }
+          
+          .logs-table th {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            color: white;
+            padding: 12px 15px;
+            text-align: left;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            font-size: 12px;
+          }
+          
+          .logs-table th:first-child {
+            border-top-left-radius: 8px;
+          }
+          
+          .logs-table th:last-child {
+            border-top-right-radius: 8px;
+          }
+          
+          .logs-table td {
+            padding: 12px 15px;
+            border-bottom: 1px solid #e2e8f0;
+            background: #f8fafc;
+          }
+          
+          .logs-table tr:nth-child(even) td {
+            background: #f1f5f9;
+          }
+          
+          .logs-table tr:hover td {
+            background: #e0e7ff;
+          }
+          
+          .low-stock {
+            color: #dc2626 !important;
+            font-weight: 600;
+          }
+          
+          .good-stock {
+            color: #059669;
+            font-weight: 600;
+          }
+          
+          .sale-transaction {
+            background: #fef2f2;
+            color: #dc2626;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+          }
+          
+          .restock-transaction {
+            background: #f0fdf4;
+            color: #059669;
+            padding: 4px 8px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            text-transform: uppercase;
+          }
+          
+          .footer {
+            background: linear-gradient(135deg, #1e293b 0%, #334155 100%);
+            color: white;
+            padding: 25px;
+            text-align: center;
+            margin-top: 30px;
+          }
+          
+          .footer p {
+            margin-bottom: 8px;
+            opacity: 0.9;
+          }
+          
+          .footer p:last-child {
+            margin-bottom: 0;
+            font-weight: 600;
+          }
+          
+          .section-divider {
+            height: 2px;
+            background: linear-gradient(90deg, transparent, #e2e8f0, transparent);
+            margin: 30px 0;
+          }
+          
+          .highlight-box {
+            background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%);
+            border: 1px solid #93c5fd;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 20px 0;
+          }
+          
+          .metric-highlight {
+            display: inline-block;
+            background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+            color: white;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+          }
+          
+          .status-badge {
+            display: inline-block;
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+          }
+          
+          .status-critical {
+            background: #fee2e2;
+            color: #dc2626;
+            border: 1px solid #fca5a5;
+          }
+          
+          .status-good {
+            background: #dcfce7;
+            color: #059669;
+            border: 1px solid #86efac;
+          }
+          
+          @media print {
+            body { padding: 0; }
+            .container { box-shadow: none; }
+          }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+
           <div class="header">
             <h1>💊 Rapport d'Analyse des Médicaments</h1>
             <p>Généré le ${currentDate} • Période: ${periodLabels[selectedPeriod]}</p>
           </div>
 
-          <div class="stats-grid">
-            <div class="stat-card">
-              <h3>Total Transactions</h3>
-              <div class="value">${getTotalTransactions()}</div>
-              <div class="subtitle">transactions enregistrées</div>
-            </div>
-            <div class="stat-card">
-              <h3>Médicaments Uniques</h3>
-              <div class="value" style="color: #10B981;">${getUniqueMedicines()}</div>
-              <div class="subtitle">médicaments différents</div>
-            </div>
-            <div class="stat-card">
-              <h3>Stock Critique</h3>
-              <div class="value" style="color: #EF4444;">${getLowStockMedicines()}</div>
-              <div class="subtitle">médicaments à réapprovisionner</div>
-            </div>
-            <div class="stat-card">
-              <h3>Quantité Totale</h3>
-              <div class="value" style="color: #F59E0B;">${getTotalQuantityChanged()}</div>
-              <div class="subtitle">unités traitées</div>
-            </div>
-          </div>
 
-          ${getLowStockMedicines() > 0 ? `
-          <div class="alert-section">
-            <h3>⚠️ Alerte Stock Critique</h3>
-            <p><strong>${getLowStockMedicines()} médicament(s)</strong> ont un stock critique (≤ 5 unités)</p>
-            <p>Action recommandée: Vérifier les approvisionnements pour ces médicaments</p>
-          </div>
-          ` : ''}
+          <div class="content">
+            <div class="stats-grid">
+              <div class="stat-card">
+                <h3>Total Transactions</h3>
+                <div class="value">${getTotalTransactions()}</div>
+                <div class="subtitle">transactions enregistrées</div>
+              </div>
+              <div class="stat-card">
+                <h3>Médicaments Uniques</h3>
+                <div class="value">${getUniqueMedicines()}</div>
+                <div class="subtitle">médicaments différents</div>
+              </div>
+              <div class="stat-card">
+                <h3>Stock Critique</h3>
+                <div class="value">${getLowStockMedicines()}</div>
+                <div class="subtitle">médicaments à réapprovisionner</div>
+              </div>
+              <div class="stat-card">
+                <h3>Quantité Totale</h3>
+                <div class="value">${getTotalQuantityChanged()}</div>
+                <div class="subtitle">unités traitées</div>
+              </div>
+            </div>
 
-          ${trendChartImage ? `
-          <div class="chart-section">
-            <h2>📈 Activité des ${periodLabels[selectedPeriod]}</h2>
-            <img src="${trendChartImage}" alt="Graphique d'activité" class="chart-image">
-            <p style="text-align: center; color: #666; font-size: 12px; margin-top: 10px;">
-              Évolution de l'activité des transactions sur la période sélectionnée
-            </p>
-          </div>
-          ` : ''}
+            ${getLowStockMedicines() > 0 ? `
+            <div class="alert-section">
+              <h3>⚠️ Alerte Stock Critique</h3>
+              <p><span class="metric-highlight">${getLowStockMedicines()} médicament(s)</span> ont un stock critique (≤ 5 unités)</p>
+              <p><strong>Action recommandée:</strong> Vérifier les approvisionnements pour ces médicaments</p>
+            </div>
+            ` : ''}
 
-          ${topMedicinesChartImage ? `
-          <div class="chart-section">
-            <h2>🏆 Top 5 Médicaments par Activité</h2>
-            <img src="${topMedicinesChartImage}" alt="Graphique des top médicaments" class="chart-image">
-            <table class="logs-table">
-              <thead>
-                <tr>
-                  <th>Médicament</th>
-                  <th>Activité Totale</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${getTopMedicines().map(medicine => {
-                  const currentStock = getCurrentStock()[medicine.fullName] || { currentStock: 0 };
-                  return `
+            ${trendChartImage ? `
+            <div class="chart-section">
+              <h2>📈 Activité des ${periodLabels[selectedPeriod]}</h2>
+              <div class="chart-content">
+                <img src="${trendChartImage}" alt="Graphique d'activité" class="chart-image">
+                <div class="highlight-box">
+                  <p style="text-align: center; color: #64748b; font-size: 14px; margin: 0;">
+                    Évolution de l'activité des transactions sur la période sélectionnée
+                  </p>
+                </div>
+              </div>
+            </div>
+            ` : ''}
+
+            ${topMedicinesChartImage ? `
+            <div class="chart-section">
+              <h2>🏆 Top 5 Médicaments par Activité</h2>
+              <div class="chart-content">
+                <img src="${topMedicinesChartImage}" alt="Graphique des top médicaments" class="chart-image">
+                <table class="logs-table">
+                  <thead>
                     <tr>
-                      <td>${medicine.fullName}</td>
-                      <td>${medicine.activity}</td>
-                      <td class="${currentStock.currentStock <= 5 ? 'low-stock' : 'good-stock'}">
-                        ${currentStock.currentStock <= 5 ? 'Stock critique' : 'Stock correct'}
-                      </td>
+                      <th>Médicament</th>
+                      <th>Activité Totale</th>
+                      <th>Statut Stock</th>
                     </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-          ` : ''}
+                  </thead>
+                  <tbody>
+                    ${getTopMedicines().map(medicine => {
+                      const currentStockData = getCurrentStock();
+                      const stockInfo = Object.values(currentStockData).find(stock => 
+                        stock.name === medicine.fullName
+                      ) || { currentStock: 0 };
+                      const isLowStock = stockInfo.currentStock <= 5;
+                      
+                      return `
+                        <tr>
+                          <td><strong>${medicine.fullName}</strong></td>
+                          <td><span class="metric-highlight">${medicine.activity}</span></td>
+                          <td>
+                            <span class="status-badge ${isLowStock ? 'status-critical' : 'status-good'}">
+                              ${isLowStock ? 'Stock critique' : 'Stock correct'}
+                            </span>
+                          </td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            ` : ''}
 
-          ${transactionTypeChartImage ? `
-          <div class="chart-section">
-            <h2>📊 Répartition par Type de Transaction</h2>
-            <img src="${transactionTypeChartImage}" alt="Graphique de répartition par type" class="chart-image">
-            <table class="logs-table">
-              <thead>
-                <tr>
-                  <th>Type de Transaction</th>
-                  <th>Nombre</th>
-                  <th>Pourcentage</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${getTransactionTypes().map(type => {
-                  const percentage = ((type.population / getTotalTransactions()) * 100).toFixed(1);
-                  return `
+            ${transactionTypeChartImage ? `
+            <div class="chart-section">
+              <h2>📊 Répartition par Type de Transaction</h2>
+              <div class="chart-content">
+                <img src="${transactionTypeChartImage}" alt="Graphique de répartition par type" class="chart-image">
+                <table class="logs-table">
+                  <thead>
                     <tr>
-                      <td>${type.name}</td>
-                      <td>${type.population}</td>
-                      <td>${percentage}%</td>
+                      <th>Type de Transaction</th>
+                      <th>Nombre</th>
+                      <th>Pourcentage</th>
                     </tr>
-                  `;
-                }).join('')}
-              </tbody>
-            </table>
-          </div>
-          ` : ''}
+                  </thead>
+                  <tbody>
+                    ${getTransactionTypes().map(type => {
+                      const percentage = ((type.population / getTotalTransactions()) * 100).toFixed(1);
+                      return `
+                        <tr>
+                          <td><strong>${type.name}</strong></td>
+                          <td><span class="metric-highlight">${type.population}</span></td>
+                          <td>${percentage}%</td>
+                        </tr>
+                      `;
+                    }).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            ` : ''}
 
-          ${getLowStockMedicines() > 0 ? `
-          <div class="chart-section">
-            <h2>⚠️ Médicaments à Stock Critique</h2>
-            <table class="logs-table">
-              <thead>
-                <tr>
-                  <th>Médicament</th>
-                  <th>Stock Actuel</th>
-                  <th>Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${getLowStockList().map(medicine => `
-                  <tr>
-                    <td>${medicine.name}</td>
-                    <td class="low-stock">${medicine.currentStock}</td>
-                    <td class="low-stock">Critique</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
-          ` : ''}
+            ${getLowStockMedicines() > 0 ? `
+            <div class="chart-section">
+              <h2>⚠️ Médicaments à Stock Critique</h2>
+              <div class="chart-content">
+                <div class="alert-section">
+                  <p>Ces médicaments nécessitent un réapprovisionnement urgent</p>
+                </div>
+                <table class="logs-table">
+                  <thead>
+                    <tr>
+                      <th>Médicament</th>
+                      <th>Stock Actuel</th>
+                      <th>Statut</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${getLowStockList().map(medicine => `
+                      <tr>
+                        <td><strong>${medicine.name}</strong></td>
+                        <td><span class="low-stock">${medicine.currentStock} unités</span></td>
+                        <td><span class="status-badge status-critical">Critique</span></td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            ` : ''}
 
-          <div class="chart-section">
-            <h2>📋 Transactions Récentes</h2>
-            <table class="logs-table">
-              <thead>
-                <tr>
-                  <th>Date</th>
-                  <th>Médicament</th>
-                  <th>Type</th>
-                  <th>Quantité</th>
-                  <th>Notes</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${getRecentLogs().map(log => `
-                  <tr>
-                    <td>${new Date(log.timestamp).toLocaleDateString('fr-FR')}</td>
-                    <td>${log.medicineName || log.medicineId || 'N/A'}</td>
-                    <td class="${log.transactionType === 'sale' ? 'sale-transaction' : 'restock-transaction'}">
-                      ${log.transactionType || 'N/A'}
-                    </td>
-                    <td>${log.quantityChanged || 0}</td>
-                    <td>${log.notes || '-'}</td>
-                  </tr>
-                `).join('')}
-              </tbody>
-            </table>
-          </div>
 
-          <div class="chart-section">
-            <h2>📋 Résumé d'Activité</h2>
+            <div class="chart-section">
+              <h2>📋 Transactions Récentes</h2>
+              <div class="chart-content">
+                <table class="logs-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Médicament</th>
+                      <th>Type</th>
+                      <th>Quantité</th>
+                      <th>Notes</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${getRecentLogs().map(log => `
+                      <tr>
+                        <td>${new Date(log.timestamp).toLocaleDateString('fr-FR', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          year: 'numeric'
+                        })}</td>
+                        <td><strong>${log.medicineName || log.medicineId || 'N/A'}</strong></td>
+                        <td>
+                          <span class="${log.transactionType === 'sale' ? 'sale-transaction' : 'restock-transaction'}">
+                            ${log.transactionType || 'N/A'}
+                          </span>
+                        </td>
+                        <td><span class="metric-highlight">${log.quantityChanged || 0}</span></td>
+                        <td>${log.notes || '-'}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div class="section-divider"></div>
+
+
             <div class="stats-grid">
               <div class="stat-card">
                 <h3>Activité Récente</h3>
-                <div class="value" style="color: #10B981;">${getRecentActivity()}</div>
+                <div class="value">${getRecentActivity()}</div>
                 <div class="subtitle">transactions dans les 24h</div>
               </div>
               <div class="stat-card">
                 <h3>Période d'Analyse</h3>
-                <div class="value" style="color: #3B82F6;">${periodLabels[selectedPeriod]}</div>
+                <div class="value" style="font-size: 18px;">${periodLabels[selectedPeriod]}</div>
                 <div class="subtitle">données analysées</div>
               </div>
             </div>
@@ -678,51 +912,52 @@ export default function AnalyticsDashboard() {
             <p>Rapport généré automatiquement par l'application de gestion des médicaments</p>
             <p>💊 Pour toute question, contactez l'équipe de gestion pharmaceutique</p>
           </div>
-        </body>
-        </html>
-      `;
+        </div>
+      </body>
+      </html>
+    `;
 
-      // Generate PDF
-      const { uri } = await Print.printToFileAsync({
-        html: htmlContent,
-        base64: false,
+
+    // Generate PDF
+    const { uri } = await Print.printToFileAsync({
+      html: htmlContent,
+      base64: false,
+    });
+
+    // Create a meaningful filename
+    const fileName = `Rapport_Medicaments_${new Date().toISOString().split('T')[0]}.pdf`;
+    const newPath = `${FileSystem.documentDirectory}${fileName}`;
+    
+    await FileSystem.moveAsync({
+      from: uri,
+      to: newPath,
+    });
+
+    // Share the PDF
+    if (await Sharing.isAvailableAsync()) {
+      await Sharing.shareAsync(newPath, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Partager le rapport PDF',
       });
-
-      // Create a meaningful filename
-      const fileName = `Rapport_Medicaments_${new Date().toISOString().split('T')[0]}.pdf`;
-      const newPath = `${FileSystem.documentDirectory}${fileName}`;
-      
-      await FileSystem.moveAsync({
-        from: uri,
-        to: newPath,
-      });
-
-      // Share the PDF
-      if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(newPath, {
-          mimeType: 'application/pdf',
-          dialogTitle: 'Partager le rapport PDF',
-        });
-      } else {
-        Alert.alert(
-          '✅ PDF Généré', 
-          `Le rapport a été sauvegardé avec succès!\n\nEmplacement: ${fileName}`,
-          [{ text: 'OK' }]
-        );
-      }
-
-    } catch (error) {
-      console.error('Erreur lors de l\'export PDF:', error);
+    } else {
       Alert.alert(
-        'Erreur',
-        'Impossible de générer le PDF. Veuillez réessayer.',
+        '✅ PDF Généré', 
+        `Le rapport a été sauvegardé avec succès!\n\nEmplacement: ${fileName}`,
         [{ text: 'OK' }]
       );
-    } finally {
-      setExportingPDF(false);
     }
-  };
 
+  } catch (error) {
+    console.error('Erreur lors de l\'export PDF:', error);
+    Alert.alert(
+      'Erreur',
+      'Impossible de générer le PDF. Veuillez réessayer.',
+      [{ text: 'OK' }]
+    );
+  } finally {
+    setExportingPDF(false);
+  }
+};
   const StatCard = ({ title, value, icon, color = '#3B82F6', subtitle }) => (
     <View className="bg-white p-4 rounded-lg shadow-sm flex-1 mx-1">
       <View className="flex-row items-center justify-between">
