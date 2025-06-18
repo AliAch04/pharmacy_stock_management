@@ -1,5 +1,8 @@
-//(services\medicines.js)
-import { databases, storage, DATABASE_ID, COLLECTION_ID, BUCKET_ID, Query } from './appwrite';
+import { databases, databaseId } from '@/lib/appwrite';
+import { Query } from 'appwrite';
+
+// Replace with your actual collection ID
+const MEDICINES_COLLECTION_ID = 'medicines';
 
 export const getMedicines = async ({
   searchTerm = '',
@@ -9,95 +12,89 @@ export const getMedicines = async ({
   sortField = 'name',
   sortOrder = 'ASC'
 }) => {
-  const queries = [
-    Query.limit(limit),
-    Query.offset(offset),
-    sortOrder === 'ASC' ? Query.orderAsc(sortField) : Query.orderDesc(sortField)
-  ];
-
-  // Add search query if searchTerm exists
-  if (searchTerm) {
-    queries.push(Query.search('name', searchTerm));
-  }
-
-  // Add filters
-  if (filters.category) {
-    queries.push(Query.equal('category', filters.category));
-  }
-  if (filters.minPrice) {
-    queries.push(Query.greaterThanEqual('price', filters.minPrice));
-  }
-  if (filters.maxPrice) {
-    queries.push(Query.lessThanEqual('price', filters.maxPrice));
-  }
-
   try {
+    // Build queries array
+    const queries = [];
+    
+    // Add user ID filter (MOST IMPORTANT - filters by current user)
+    if (filters.userID) {
+      queries.push(Query.equal('userID', filters.userID));
+    }
+    
+    // Add search term filter
+    if (searchTerm) {
+      // Search in name or description - adjust field names as needed
+      queries.push(Query.or([
+        Query.search('name', searchTerm),
+        Query.search('description', searchTerm)
+      ]));
+    }
+    
+    // Add category filter
+    if (filters.category) {
+      queries.push(Query.equal('category', filters.category));
+    }
+    
+    // Add price range filters
+    if (filters.minPrice !== undefined && filters.minPrice > 0) {
+      queries.push(Query.greaterThanEqual('price', filters.minPrice));
+    }
+    
+    if (filters.maxPrice !== undefined && filters.maxPrice < 1000) {
+      queries.push(Query.lessThanEqual('price', filters.maxPrice));
+    }
+    
+    // Add pagination
+    queries.push(Query.limit(limit));
+    queries.push(Query.offset(offset));
+    
+    // Add sorting
+    if (sortOrder === 'ASC') {
+      queries.push(Query.orderAsc(sortField));
+    } else {
+      queries.push(Query.orderDesc(sortField));
+    }
+    
+    // Execute the query
     const response = await databases.listDocuments(
-      DATABASE_ID,
-      COLLECTION_ID,
+      databaseId,
+      MEDICINES_COLLECTION_ID,
       queries
     );
+    
     return response;
+    
   } catch (error) {
     console.error('Error fetching medicines:', error);
     throw error;
   }
 };
 
-// Get file preview URL
-export const getFilePreview = (fileId: string) => {
-  try {
-    return storage.getFilePreview(
-      BUCKET_ID,
-      fileId,
-      300, // width
-      300, // height
-      undefined, // gravity
-      undefined, // quality
-      undefined, // borderWidth
-      undefined, // borderColor
-      undefined, // borderRadius
-      undefined, // opacity
-      undefined, // rotation
-      undefined, // background
-      undefined, // output
-    );
-  } catch (error) {
-    console.error('Error getting file preview:', error);
-    return null;
-  }
-};
-
-export const getFileDownload = (fileId: string) => {
-  try {
-    return storage.getFileDownload(
-      BUCKET_ID,
-      fileId
-    );
-  } catch (error) {
-    console.error('Error getting file download:', error);
-    return null;
-  }
-};
-
-// Upload medicine image
-export const uploadImage = async (file) => {
-  return await storage.createFile(
-    BUCKET_ID,
-    'unique()',
-    file
-  );
-};
-
-// Get all categories for filter
 export const getCategories = async () => {
-  const response = await databases.listDocuments(
-    DATABASE_ID,
-    COLLECTION_ID,
-    [Query.select(['category']), Query.limit(100)]
-  );
-  
-  // Extract unique categories
-  const categories = [...new Set(response.documents.map(doc => doc.category))];
-  return categories.filter(Boolean); // Remove any undefined/null values
+  try {
+    // Get unique categories from medicines collection
+    const response = await databases.listDocuments(
+      databaseId,
+      MEDICINES_COLLECTION_ID,
+      [Query.select(['category'])]
+    );
+    
+    // Extract unique categories
+    const categories = [...new Set(
+      response.documents.map(doc => doc.category).filter(Boolean)
+    )];
+    
+    return categories;
+    
+  } catch (error) {
+    console.error('Error fetching categories:', error);
+    return [];
+  }
+};
+
+export const getFilePreview = (fileId) => {
+  // This function is imported but not used in your component
+  // You can implement it if needed for file previews
+  if (!fileId) return null;
+  return `https://fra.cloud.appwrite.io/v1/storage/buckets/medicines-images/files/${fileId}/view?project=68424153002403801f6b&mode=admin`;
 };
