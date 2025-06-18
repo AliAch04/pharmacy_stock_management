@@ -19,6 +19,8 @@ import { Query } from 'appwrite';
 
 const { width: screenWidth } = Dimensions.get('window');
 
+const { width: screenWidth } = Dimensions.get('window');
+
 const Search = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [medicines, setMedicines] = useState([]);
@@ -90,7 +92,6 @@ const Search = () => {
     }));
   };
 
-  // Fetch categories on mount - but only after user is loaded
   useEffect(() => {
     const fetchCategories = async () => {
       if (!currentUserID) return; // Wait for user ID
@@ -276,6 +277,7 @@ const Search = () => {
     );
   }
 
+
   return (
     <View style={styles.container}>
       <View style={styles.searchContainer}>
@@ -339,10 +341,12 @@ const Search = () => {
               <Text style={styles.emptyText}>
                 {searchTerm ? 'Aucun médicament trouvé' : 'Recherchez des médicaments...'}
               </Text>
+
               {/* Debug info - remove in production */}
               <Text style={styles.debugText}>
                 User ID: {currentUserID ? 'Found' : 'Not found'}
               </Text>
+
             </View>
           }
           onEndReached={loadMore}
@@ -682,6 +686,7 @@ const styles = StyleSheet.create({
     color: '#999',
     marginTop: 8,
   },
+
   footerLoader: {
     marginVertical: 20,
   },

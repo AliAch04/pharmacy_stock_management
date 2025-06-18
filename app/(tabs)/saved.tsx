@@ -67,6 +67,7 @@ export default function AnalyticsDashboard() {
       setLoading(true);
       
       const dateLimit = getDateLimit();
+
       const queries = [
         Query.greaterThanEqual('timestamp', dateLimit),
         Query.orderDesc('timestamp'),
@@ -84,6 +85,7 @@ export default function AnalyticsDashboard() {
         queries
       );
       
+
       setLogs(logsResponse.documents);
     } catch (error) {
       console.error('Erreur de récupération des données:', error);
@@ -146,6 +148,7 @@ export default function AnalyticsDashboard() {
   };
 
   // NEW: All statistics functions now based on logs only
+
   const getTotalTransactions = () => logs.length;
   
   const getUniqueMedicines = () => {
@@ -207,6 +210,7 @@ export default function AnalyticsDashboard() {
       legendFontSize: 12,
     }));
   };
+
 
   const getActivityTrend = () => {
     // Determine time range based on selected period
@@ -365,6 +369,7 @@ const exportToPDF = async () => {
           quality: 0.8,
         });
         transactionTypeChartImage = `data:image/png;base64,${await FileSystem.readAsStringAsync(transactionTypeUri, { encoding: 'base64' })}`;
+
       }
     } catch (chartError) {
       console.log('Chart capture error:', chartError);
@@ -698,10 +703,12 @@ const exportToPDF = async () => {
       </head>
       <body>
         <div class="container">
+
           <div class="header">
             <h1>💊 Rapport d'Analyse des Médicaments</h1>
             <p>Généré le ${currentDate} • Période: ${periodLabels[selectedPeriod]}</p>
           </div>
+
 
           <div class="content">
             <div class="stats-grid">
@@ -847,6 +854,7 @@ const exportToPDF = async () => {
             </div>
             ` : ''}
 
+
             <div class="chart-section">
               <h2>📋 Transactions Récentes</h2>
               <div class="chart-content">
@@ -885,6 +893,7 @@ const exportToPDF = async () => {
 
             <div class="section-divider"></div>
 
+
             <div class="stats-grid">
               <div class="stat-card">
                 <h3>Activité Récente</h3>
@@ -907,6 +916,7 @@ const exportToPDF = async () => {
       </body>
       </html>
     `;
+
 
     // Generate PDF
     const { uri } = await Print.printToFileAsync({

@@ -676,6 +676,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   header: {
+    marginTop:50,
     paddingTop: 20,
     paddingHorizontal: 20,
     paddingBottom: 10,
@@ -807,7 +808,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 12,
     elevation: 5,
-    marginBottom:100
+
+    marginBottom: 100
+
   },
   infoItem: {
     flexDirection: 'row',

@@ -935,6 +935,7 @@ export default function InventoryDashboard() {
               )}
             </TouchableOpacity>
 
+
             {uploadingImage && (
               <View className="flex-row items-center mt-2">
                 <ActivityIndicator size="small" color="#3B82F6" />
