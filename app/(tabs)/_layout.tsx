@@ -5,7 +5,7 @@ import { images } from '@/constants/images';
 import { Ionicons } from '@expo/vector-icons';
 import type { ComponentProps } from 'react';
 
-// ✅ Extract the correct type for the icon name prop
+// Extract the correct type for the icon name prop
 type IoniconName = ComponentProps<typeof Ionicons>['name'];
 
 const TabIcon = ({

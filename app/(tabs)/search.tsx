@@ -19,8 +19,6 @@ import { Query } from 'appwrite';
 
 const { width: screenWidth } = Dimensions.get('window');
 
-const { width: screenWidth } = Dimensions.get('window');
-
 const Search = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [medicines, setMedicines] = useState([]);
@@ -555,6 +553,7 @@ const styles = StyleSheet.create({
     shadowRadius: 4,
     elevation: 3,
     overflow: 'hidden',
+    marginBottom: 75
   },
   imageContainer: {
     position: 'relative',
@@ -594,6 +593,7 @@ const styles = StyleSheet.create({
   },
   contentContainer: {
     padding: 16,
+    
   },
   headerContainer: {
     flexDirection: 'row',

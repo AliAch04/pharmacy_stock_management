@@ -12,53 +12,51 @@ export default function LoginPage() {
   const router = useRouter();
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
+  if (!email || !password) {
+    Alert.alert('Error', 'Please fill in all fields');
+    return;
+  }
 
+  try {
+    setLoading(true);
+    
+    console.log('1. Attempting to delete existing session...');
     try {
-      setLoading(true);
-      
-      // 1. First, delete any existing session to avoid conflicts
-      try {
-        await account.deleteSession('current');
-      } catch (sessionError) {
-        // If no session exists, this will throw an error, which is fine
-        console.log('No existing session to delete');
-      }
-
-      // 2. Create new session
-      await account.createEmailPasswordSession(email, password);
-      
-      // 3. Get current user to verify login was successful
-      const currentUser = await account.get();
-      if (!currentUser) throw new Error('Failed to verify login');
-
-      setLoading(false);
-      
-      
-      // 4. Redirect to home - using push instead of replace to allow back navigation if needed
-      router.replace({
-      pathname: '/(tabs)',
-      params: { userID: currentUser.$id } // Pass the user ID
-});
-      
-    } catch (error: any) {
-      setLoading(false);
-      console.error('Login failed:', error);
-      
-      // More specific error messages
-      let errorMessage = 'An error occurred during login';
-      if (error.message.includes('Invalid credentials')) {
-        errorMessage = 'Invalid email or password';
-      } else if (error.message.includes('session')) {
-        errorMessage = 'Session error - please try again';
-      }
-      
-      Alert.alert('Login failed', errorMessage);
+      await account.deleteSession('current');
+      console.log('Existing session deleted');
+    } catch (sessionError) {
+      console.log('No existing session to delete');
     }
-  };
+
+    console.log('2. Creating new session...');
+    await account.createEmailPasswordSession(email, password);
+    
+    console.log('3. Getting current user...');
+    const currentUser = await account.get();
+    console.log('Current user:', currentUser);
+    
+    if (!currentUser) throw new Error('Failed to verify login');
+
+    setLoading(false);
+    console.log('4. Login successful, navigating to tabs...');
+    
+    // Navigation corrigée
+    router.navigate('/(tabs)');
+    
+  } catch (error: any) {
+    setLoading(false);
+    console.error('Login failed:', error);
+    
+    let errorMessage = 'An error occurred during login';
+    if (error.message.includes('Invalid credentials')) {
+      errorMessage = 'Invalid email or password';
+    } else if (error.message.includes('session')) {
+      errorMessage = 'Session error - please try again';
+    }
+    
+    Alert.alert('Login failed', errorMessage);
+  }
+};
 
   return (
     <SafeAreaView style={styles.container}>
